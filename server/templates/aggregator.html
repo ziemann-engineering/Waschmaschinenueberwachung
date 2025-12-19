@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ aggregator.name }} - Waschmaschinen-Status</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='icon.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta http-equiv="refresh" content="30">
+</head>
+<body>
+    <header>
+        <nav class="nav-bar">
+            <a href="/" class="back-link">← Alle Standorte</a>
+            <a href="/info" class="info-link">ℹ️ Info</a>
+        </nav>
+        <h1><img src="{{ url_for('static', filename='icon.svg') }}" alt="" class="header-icon"> {{ aggregator.name }}</h1>
+        <p class="location">{{ aggregator.location }}</p>
+        <p class="last-update">Zuletzt aktualisiert: <span id="update-time"></span></p>
+    </header>
+
+    <main>
+        {% if not lora_connected %}
+        <div class="error-banner lora-error">
+            ❌ Server hat keinen LoRa-Empfänger
+        </div>
+        {% endif %}
+        
+        {% if aggregator.online %}
+        <section class="summary-bar">
+            <div class="summary-group">
+                <span class="summary-label">💧 Waschmaschinen:</span>
+                <span class="summary-value">{{ aggregator.summary.washers_free }}/{{ aggregator.summary.washers_total }} frei</span>
+            </div>
+            <div class="summary-group">
+                <span class="summary-label">🌀 Tumbler:</span>
+                <span class="summary-value">{{ aggregator.summary.dryers_free }}/{{ aggregator.summary.dryers_total }} frei</span>
+            </div>
+        </section>
+        {% else %}
+        <div class="error-banner aggregator-error">
+            ⚠️ Keine Verbindung zu diesem Sender
+        </div>
+        {% endif %}
+
+        <!-- Waschmaschinen -->
+        {% if aggregator.washers %}
+        <section class="machine-list">
+            <h2 class="section-title">💧 Waschmaschinen</h2>
+            {% for machine in aggregator.washers %}
+            <div class="machine-detail-card state-{{ machine.state }}">
+                <div class="machine-icon-large">{{ machine.state_icon }}</div>
+                
+                <div class="machine-details">
+                    <h3>{{ machine.name }}</h3>
+                    <p class="state-label">{{ machine.state_with_time }}</p>
+                    
+                    <div class="stats">
+                        {% if machine.cycle_duration_formatted %}
+                        <div class="stat">
+                            <span class="stat-label">Zyklusdauer:</span>
+                            <span class="stat-value">{{ machine.cycle_duration_formatted }}</span>
+                        </div>
+                        {% endif %}
+                        
+                        <div class="stat">
+                            <span class="stat-label">Vibration:</span>
+                            <span class="stat-value">{{ machine.rms_display }} m/s²</span>
+                        </div>
+                        
+                        <div class="stat">
+                            <span class="stat-label">Batterie:</span>
+                            <span class="stat-value {% if machine.low_battery %}low-battery{% endif %}">
+                                {{ machine.battery_display }}
+                            </span>
+                        </div>
+                        
+                        {% if machine.time_since_reading %}
+                        <div class="stat">
+                            <span class="stat-label">Letzte Messung:</span>
+                            <span class="stat-value">vor {{ machine.time_since_reading }}s</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        <!-- Tumbler -->
+        {% if aggregator.dryers %}
+        <section class="machine-list">
+            <h2 class="section-title">🌀 Tumbler</h2>
+            {% for machine in aggregator.dryers %}
+            <div class="machine-detail-card state-{{ machine.state }}">
+                <div class="machine-icon-large">{{ machine.state_icon }}</div>
+                
+                <div class="machine-details">
+                    <h3>{{ machine.name }}</h3>
+                    <p class="state-label">{{ machine.state_with_time }}</p>
+                    
+                    <div class="stats">
+                        {% if machine.cycle_duration_formatted %}
+                        <div class="stat">
+                            <span class="stat-label">Zyklusdauer:</span>
+                            <span class="stat-value">{{ machine.cycle_duration_formatted }}</span>
+                        </div>
+                        {% endif %}
+                        
+                        <div class="stat">
+                            <span class="stat-label">Vibration:</span>
+                            <span class="stat-value">{{ machine.rms_display }} m/s²</span>
+                        </div>
+                        
+                        <div class="stat">
+                            <span class="stat-label">Batterie:</span>
+                            <span class="stat-value {% if machine.low_battery %}low-battery{% endif %}">
+                                {{ machine.battery_display }}
+                            </span>
+                        </div>
+                        
+                        {% if machine.time_since_reading %}
+                        <div class="stat">
+                            <span class="stat-label">Letzte Messung:</span>
+                            <span class="stat-value">vor {{ machine.time_since_reading }}s</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+    </main>
+
+    <footer>
+        <p>Aktualisiert automatisch alle 30 Sekunden</p>
+    </footer>
+
+    <script>
+        document.getElementById('update-time').textContent = new Date().toLocaleTimeString('de-DE');
+    </script>
+</body>
+</html>

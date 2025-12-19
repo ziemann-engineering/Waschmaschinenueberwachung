@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Waschmaschinen-Status</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='icon.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta http-equiv="refresh" content="30">
+</head>
+<body>
+    <header>
+        <h1><img src="{{ url_for('static', filename='icon.svg') }}" alt="" class="header-icon"> Waschmaschinen-Status</h1>
+        <p class="last-update">Zuletzt aktualisiert: <span id="update-time"></span></p>
+    </header>
+
+    <main>
+        {% if not lora_connected %}
+        <div class="error-banner lora-error">
+            ❌ Server hat keinen LoRa-Empfänger
+        </div>
+        {% endif %}
+        
+        <div class="info-link-bar">
+            <a href="/info" class="info-link">ℹ️ Was ist das?</a>
+        </div>
+        
+        {% for agg_id, agg in aggregators.items() %}
+        <section class="aggregator-card">
+            <div class="aggregator-header">
+                <h2>
+                    <a href="/{{ agg.name }}">{{ agg.name }}</a>
+                </h2>
+                <p class="location">{{ agg.location }}</p>
+            </div>
+            
+            {% if agg.online %}
+            <div class="summary">
+                <div class="summary-group">
+                    <span class="summary-label">💧 Waschmaschinen:</span>
+                    <span class="summary-value free">{{ agg.summary.washers_free }}/{{ agg.summary.washers_total }} frei</span>
+                </div>
+                <div class="summary-group">
+                    <span class="summary-label">🌀 Tumbler:</span>
+                    <span class="summary-value free">{{ agg.summary.dryers_free }}/{{ agg.summary.dryers_total }} frei</span>
+                </div>
+            </div>
+            {% else %}
+            <div class="error-banner aggregator-error">
+                ⚠️ Keine Verbindung zu diesem Sender
+            </div>
+            {% endif %}
+
+            <!-- Waschmaschinen -->
+            {% if agg.washers %}
+            <h3 class="type-header">💧 Waschmaschinen</h3>
+            <div class="machine-grid">
+                {% for machine in agg.washers %}
+                <div class="machine-card state-{{ machine.state }}">
+                    <div class="machine-icon">{{ machine.state_icon }}</div>
+                    <div class="machine-info">
+                        <span class="machine-name">{{ machine.name }}</span>
+                        <span class="machine-state">{{ machine.state_label }}</span>
+                        {% if machine.time_in_state_formatted %}
+                        <span class="machine-time">{{ machine.time_in_state_formatted }}</span>
+                        {% endif %}
+                    </div>
+                    {% if machine.low_battery %}
+                    <div class="battery-warning" title="Batterie schwach: {{ machine.battery_display }}">🪫</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- Tumbler -->
+            {% if agg.dryers %}
+            <h3 class="type-header">🌀 Tumbler</h3>
+            <div class="machine-grid">
+                {% for machine in agg.dryers %}
+                <div class="machine-card state-{{ machine.state }}">
+                    <div class="machine-icon">{{ machine.state_icon }}</div>
+                    <div class="machine-info">
+                        <span class="machine-name">{{ machine.name }}</span>
+                        <span class="machine-state">{{ machine.state_label }}</span>
+                        {% if machine.time_in_state_formatted %}
+                        <span class="machine-time">{{ machine.time_in_state_formatted }}</span>
+                        {% endif %}
+                    </div>
+                    {% if machine.low_battery %}
+                    <div class="battery-warning" title="Batterie schwach: {{ machine.battery_display }}">🪫</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </section>
+        {% endfor %}
+    </main>
+
+    <footer>
+        <p>Aktualisiert automatisch alle 30 Sekunden</p>
+    </footer>
+
+    <script>
+        document.getElementById('update-time').textContent = new Date().toLocaleTimeString('de-DE');
+    </script>
+</body>
+</html>

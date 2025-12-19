@@ -1,0 +1,54 @@
+{
+    "serial_port": "COM4",
+    "serial_baud": 115200,
+    "configure_lora": true,
+    "lora_settings": {
+        "spreading_factor": 10,
+        "bandwidth": 0,
+        "channel": 18
+    },
+    "web_host": "0.0.0.0",
+    "web_port": 80,
+    "database_path": "washing_machines.db",
+    "low_battery_percent": 20,
+    "thresholds": {
+        "running_rms": 0.5,
+        "done_minutes": 15,
+        "free_minutes": 120
+    },
+    "aggregators": {
+        "1": {
+            "name": "G13",
+            "location": "Genossenschaftsstrasse 13, EG",
+            "machines": {
+                "1": {"type": 1, "name": "Waschmaschine 1"},
+                "2": {"type": 1, "name": "Waschmaschine 2"},
+                "3": {"type": 1, "name": "Waschmaschine 3"},
+                "4": {"type": 2, "name": "Tumbler 1"},
+                "5": {"type": 2, "name": "Tumbler 2"}
+            }
+        },
+        "2": {
+            "name": "D2",
+            "location": "Dialogweg 2, EG",
+            "machines": {
+                "1": {"type": 1, "name": "Waschmaschine 1"},
+                "2": {"type": 1, "name": "Waschmaschine 2"},
+                "3": {"type": 1, "name": "Waschmaschine 3"},
+                "4": {"type": 1, "name": "Waschmaschine 4"},
+                "5": {"type": 2, "name": "Tumbler 1"},
+                "6": {"type": 2, "name": "Tumbler 2"}
+            }
+        }
+    },
+    "notifications": {
+        "enabled": false,
+        "webhook_url": "",
+        "email_smtp_server": "",
+        "email_smtp_port": 587,
+        "email_username": "",
+        "email_password": "",
+        "email_from": "",
+        "email_to": []
+    }
+}

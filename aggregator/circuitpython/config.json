@@ -1,0 +1,8 @@
+{
+    "aggregator_name": "Building_A_Floor_1",
+    "aggregator_id": 1,
+    "ble_scan_duration_sec": 5,
+    "lora_tx_interval_sec": 0,
+    "company_id": 65535,
+    "protocol_version": 2
+}

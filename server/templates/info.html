@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Info - Waschmaschinen-Status</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='icon.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header>
+        <nav class="nav-bar">
+            <a href="/" class="back-link">← Zurück</a>
+        </nav>
+        <h1><img src="{{ url_for('static', filename='icon.svg') }}" alt="" class="header-icon"> Über dieses Projekt</h1>
+    </header>
+
+    <main>
+        <section class="info-card">
+            <h2>🧺 Waschmaschinen-Überwachung</h2>
+            <p>
+                Dieses System überwacht den Status von Waschmaschinen und Tumblern in Echtzeit, 
+                damit du nicht unnötig in den Waschraum laufen musst. Gebaut und betrieben von interessierten Bewohnern.
+            </p>
+            
+            <h3>Wie funktioniert es?</h3>
+            <p>
+                An jeder Waschmaschine und jedem Tumbler ist ein kleiner Sensor befestigt, 
+                der Vibrationen misst. Wenn die Maschine läuft, vibriert sie – und der Sensor 
+                erkennt das.
+            </p>
+            
+            <h3>Status-Bedeutung</h3>
+            <div class="status-legend">
+                <div class="legend-item">
+                    <span class="legend-icon">🔴</span>
+                    <div>
+                        <strong>Läuft</strong>
+                        <p>Die Maschine ist gerade in Betrieb.</p>
+                    </div>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-icon">🟡</span>
+                    <div>
+                        <strong>Stoppt</strong>
+                        <p>Die Maschine hat gerade aufgehört zu laufen (< 15 min).</p>
+                    </div>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-icon">🟢</span>
+                    <div>
+                        <strong>Fertig</strong>
+                        <p>Die Maschine läuft seit mehr als 15 Minuten nicht mehr – wahrscheinlich ist sie fertig.</p>
+                    </div>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-icon">🔵</span>
+                    <div>
+                        <strong>Frei</strong>
+                        <p>Die Maschine ist seit über 2 Stunden nicht mehr gelaufen und steht wahrscheinlich bereit.</p>
+                    </div>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-icon">⚫</span>
+                    <div>
+                        <strong>Offline</strong>
+                        <p>Der Sensor hat sich längere Zeit nicht gemeldet. Vielleicht ist die Batterie leer.</p>
+                    </div>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-icon">❓</span>
+                    <div>
+                        <strong>Nicht gefunden</strong>
+                        <p>Noch keine Daten vom Sensor empfangen.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <h3>Technik</h3>
+            <p>
+                Die Sensoren basieren auf einem nRF52840 Mikrocontroller mit Beschleunigungssensor. 
+                Ihre CR2032 Knopfzelle hält ca. 1 Jahr. Sie senden ihre Daten per 
+                Bluetooth Low Energy an eine Bluetooth-Lora-Brücke, die in der Nähe eingesteckt ist.
+                Diese schickt die Daten aller lokalen Sensoren per LoRa-Funk an 
+                diesen Server im Dialogweg 6 weiter.
+            </p>
+            
+            <h3>🪫Batterie-Warnung</h3>
+            <p>
+                Wenn bei einer Maschine das Batterie-Symbol angezeigt wird, ist die Batterie 
+                des Sensors schwach und sollte bald gewechselt werden. Die nutzenden Bewohner 
+                können den Sensor einfach abnehmen und die Batterie austauschen (CR2032).
+            </p>
+
+            <h3>⚠️ Keine Verbindung zu diesem Sender</h3>
+            <p>
+                Wenn diese Meldung erscheint, hat der Server längere Zeit keine Daten 
+                mehr von einer Bluetooth-Lora-Brücke erhalten. Vielleicht ist diese
+                ausgesteckt oder die Funkverbindung ist gestört.
+            </p>
+
+            <h3>❌ Server hat keinen LoRa-Empfänger</h3>
+            <p>
+                Diese Server-Software konnte keinen LoRa-Empfänger finden. Der Empfänger ist 
+                entweder nicht angeschlossen oder der COM-Port ist falsch konfiguriert.
+            </p>
+        </section>
+    </main>
+
+    <footer>
+        <p>Entwickelt mit ❤️ im Hunzikerareal</p>
+    </footer>
+</body>
+</html>
