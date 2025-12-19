@@ -1,35 +1,40 @@
 # Required CircuitPython Libraries for Aggregator
 
-Download from: https://circuitpython.org/libraries
+## Hardware Setup
+- **Board**: Seeed XIAO ESP32S3 (Sense version)
+- **LoRa Module**: SX1262 via board-to-board connector
+- **Firmware**: CircuitPython for XIAO S3 Sense
 
-## For Seeed XIAO ESP32S3 with CircuitPython 9.x
+## Library Files (included in lib/)
 
-Copy these libraries to the `CIRCUITPY/lib/` folder:
+The following SX1262 driver files are included in the `lib/` folder:
 
-### Required Libraries
+1. **sx1262.py** - High-level SX1262 LoRa driver
+2. **sx126x.py** - Base SX126X driver class
+3. **_sx126x.py** - Constants and error definitions
+
+These are from the CircuitPython/MicroPython SX126x library.
+
+## Additional Libraries (from Adafruit Bundle)
+
+Copy these libraries to the `CIRCUITPY/lib/` folder if using BLE scanning:
 
 1. **adafruit_ble/** (folder)
    - BLE scanning and advertisement parsing
    
-### Installation
-
-1. Download the CircuitPython Library Bundle for 9.x:
-   https://github.com/adafruit/Adafruit_CircuitPython_Bundle/releases
-
-2. Extract and copy these folders to `CIRCUITPY/lib/`:
-   - `adafruit_ble/`
-
-### Alternative: Using circup
+### Installation via circup
 
 ```bash
 pip install circup
 circup install adafruit_ble
 ```
 
-## CircuitPython Installation for XIAO ESP32S3
+Or manually download from: https://circuitpython.org/libraries
 
-1. Download CircuitPython 9.x for Seeed XIAO ESP32S3:
-   https://circuitpython.org/board/seeed_xiao_esp32s3/
+## CircuitPython Installation for XIAO ESP32S3 Sense
+
+1. Download CircuitPython 9.x for Seeed XIAO ESP32S3 Sense:
+   https://circuitpython.org/board/seeed_xiao_esp32s3_sense/
 
 2. Enter bootloader mode:
    - Hold BOOT button, press RESET, release BOOT
@@ -39,29 +44,44 @@ circup install adafruit_ble
 
 4. The board will reboot and a `CIRCUITPY` drive will appear
 
-## LoRa Module Wiring
+## Hardware Pin Configuration
 
-### For Grove Wio-E5 (UART AT commands):
-| Wio-E5 | XIAO ESP32S3 |
-|--------|--------------|
-| VCC    | 3V3          |
-| GND    | GND          |
-| TX     | D7 (RX)      |
-| RX     | D6 (TX)      |
+### SX1262 LoRa Module (Board-to-Board Connector)
 
-### For Generic SX1262 UART Module (Stream mode):
-| Module | XIAO ESP32S3 |
-|--------|--------------|
-| VCC    | 3V3          |
-| GND    | GND          |
-| TXD    | D7 (RX)      |
-| RXD    | D6 (TX)      |
+| Function | GPIO Pin |
+|----------|----------|
+| SPI SCK  | board.SCK |
+| SPI MOSI | board.MOSI |
+| SPI MISO | board.MISO |
+| CS       | GPIO41 |
+| IRQ      | GPIO39 |
+| RST      | GPIO42 |
+| BUSY     | GPIO40 |
+| TX/RX SW | GPIO38 |
 
-### For SPI-based SX1262 (requires different code):
-Use the Arduino/PlatformIO version instead, or adapt with adafruit_rfm9x library.
+### LED Indicator
+| Function | GPIO Pin |
+|----------|----------|
+| Status LED | GPIO21 |
 
-## Notes
+## LoRa Settings (Default)
 
-- The XIAO ESP32S3 has built-in BLE support
-- Make sure the LoRa module is configured for the same frequency/SF/BW as the receiver
-- Default: 868MHz, SF7, BW125kHz (adjust in module config or AT commands)
+| Parameter | Value |
+|-----------|-------|
+| Frequency | 868 MHz |
+| Bandwidth | 125 kHz |
+| Spreading Factor | 7 |
+| Coding Rate | 4/5 |
+| Sync Word | 0x12 (private) |
+| TX Power | -5 dBm |
+| TCXO Voltage | 1.7V |
+
+These can be adjusted in `config.json`.
+
+## Deploying to Device
+
+1. Connect the XIAO to your computer via USB
+2. Copy `code.py` to the root of `CIRCUITPY`
+3. Copy `config.json` to the root of `CIRCUITPY`
+4. Copy the contents of `lib/` to `CIRCUITPY/lib/`
+5. The device will automatically restart and run the code
