@@ -240,7 +240,7 @@ class LoRaReceiver:
                         
                         # Validate machine count (should be reasonable)
                         machine_count = buffer[1]
-                        if machine_count == 0 or machine_count > 30:
+                        if machine_count > 30:
                             # Invalid count, skip byte
                             logger.warning(f"Invalid machine count {machine_count}, skipping byte")
                             del buffer[0]
@@ -278,6 +278,12 @@ class LoRaReceiver:
             machine_count = packet[1]
             
             logger.debug(f"Received packet: aggregator={aggregator_id}, machines={machine_count}")
+            
+            # Handle heartbeat packets (0 machines)
+            if machine_count == 0:
+                logger.info(f"Received heartbeat from aggregator {aggregator_id}")
+                # Update last packet time even for heartbeats to show aggregator is online
+                return
             
             timestamp = time.time()
             offset = 2
@@ -328,11 +334,11 @@ class MockLoRaReceiver(LoRaReceiver):
         super().__init__("MOCK", 9600)
         self._mock_connected = True
         self.mock_machines = [
-            (1, 1, True),   # Aggregator 1, Machine 1, running
-            (1, 2, False),  # Aggregator 1, Machine 2, idle
-            (1, 3, True),   # Aggregator 1, Machine 3, running
-            (2, 1, False),  # Aggregator 2, Machine 1, idle
-            (2, 2, True),   # Aggregator 2, Machine 2, running
+            (1, 1, 1, True),   # Aggregator 1, Machine 1, Type washer, running
+            (1, 1, 2, False),  # Aggregator 1, Machine 2, Type washer, idle
+            (1, 2, 3, True),   # Aggregator 1, Machine 3, Type dryer, running
+            (2, 1, 1, False),  # Aggregator 2, Machine 1, Type washer, idle
+            (2, 2, 2, True),   # Aggregator 2, Machine 2, Type dryer, running
         ]
     
     @property
@@ -352,7 +358,7 @@ class MockLoRaReceiver(LoRaReceiver):
         import random
         
         while self.running:
-            for agg_id, machine_id, is_running in self.mock_machines:
+            for agg_id, machine_type, machine_id, is_running in self.mock_machines:
                 if is_running:
                     rms = random.uniform(1.0, 3.0)
                     freq = random.uniform(10, 25)
@@ -362,6 +368,7 @@ class MockLoRaReceiver(LoRaReceiver):
                     
                 reading = MachineReading(
                     aggregator_id=agg_id,
+                    machine_type=machine_type,
                     machine_id=machine_id,
                     rms=rms,
                     dominant_freq=freq,

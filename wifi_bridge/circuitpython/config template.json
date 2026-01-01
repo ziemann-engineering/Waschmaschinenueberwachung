@@ -1,0 +1,27 @@
+{
+  "wifi": {
+    "ssid": "ssid",
+    "password": "password"
+  },
+  "server": {
+    "host": "192.168.1.100",
+    "port": 8080,
+    "endpoint": "/api/lora-data"
+  },
+  "lora": {
+    "frequency": 868000000,
+    "bandwidth": 7,
+    "spreading_factor": 7,
+    "coding_rate": 5,
+    "tx_power": 20,
+    "enable_crc": true,
+    "sync_word": 18,
+    "preamble_length": 8
+  },
+  "pins": {
+    "cs": 41,
+    "irq": 39,
+    "rst": 42,
+    "busy": 40
+  }
+}

@@ -5,13 +5,13 @@ A low-power IoT system to monitor washing machines and dryers, showing availabil
 ## Architecture Overview
 
 ```
-┌─────────────────┐     BLE      ┌─────────────────┐     LoRa 868MHz     ┌─────────────────┐
-│  Sensor Nodes   │  ─────────►  │   Aggregators   │  ────────────────►  │     Server      │
-│  (up to 20/agg) │  advertising │   (up to 15)    │     < 1 km          │                 │
-└─────────────────┘              └─────────────────┘                     └─────────────────┘
-    XIAO nRF52840                   XIAO ESP32S3                          Python + Flask
-    + LSM6DS3                       + SX1262 LoRa                         + Waveshare USB LoRa
-    CR2032 powered                  USB powered                           Web Interface
+┌─────────────────┐     BLE      ┌─────────────────┐     LoRa 868MHz     ┌─────────────────┐     HTTP     ┌─────────────────┐
+│  Sensor Nodes   │  ─────────►  │   Aggregators   │  ────────────────►  │  WiFi Bridge    │  ─────────► │     Server      │
+│  (up to 20/agg) │  advertising │   (up to 15)    │     < 1 km          │                 │             │                 │
+└─────────────────┘              └─────────────────┘                     └─────────────────┘             └─────────────────┘
+    XIAO nRF52840                   XIAO ESP32S3                          XIAO ESP32S3                    Python + Flask
+    + LSM6DS3                       + SX1262 LoRa                         + SX1262 LoRa                   HTTP Endpoint
+    CR2032 powered                  USB powered                           + WiFi                          Web Interface
 ```
 
 ## Components
@@ -28,7 +28,7 @@ A low-power IoT system to monitor washing machines and dryers, showing availabil
   - Deep sleep between measurements
 
 ### 2. Aggregator (`/aggregator`)
-- **Hardware**: Seeed XIAO ESP32S3 + UART LoRa module (e.g., Grove Wio-E5 or SX1262 UART module)
+- **Hardware**: Seeed XIAO ESP32S3 + SX1262 LoRa module
 - **Power**: USB powered (no constraints)
 - **Firmware**: CircuitPython
 - **Function**:
@@ -36,11 +36,20 @@ A low-power IoT system to monitor washing machines and dryers, showing availabil
   - Forward received data via LoRa immediately
   - Add aggregator ID to packets
 
-### 3. Server (`/server`)
-- **Hardware**: Any PC/Raspberry Pi + Waveshare USB-TO-LoRa-xF adapter
+### 3. WiFi Bridge (`/wifi_bridge`)
+- **Hardware**: Seeed XIAO ESP32S3 + SX1262 LoRa module
+- **Power**: USB powered
+- **Firmware**: CircuitPython
+- **Function**:
+  - Receive LoRa packets from aggregators
+  - Forward data to server via HTTP POST
+  - Bridge between LoRa and WiFi networks
+
+### 4. Server (`/server`)
+- **Hardware**: Any PC/Raspberry Pi
 - **Software**: Python 3.10+
 - **Function**:
-  - Receive LoRa packets via serial
+  - Receive data via HTTP endpoint
   - Determine machine state based on vibration data
   - Serve web interface showing machine status
   - Store history in SQLite database

@@ -50,23 +50,6 @@ def load_config():
             return json.load(f)
     except Exception as e:
         print(f"Error loading config: {e}")
-        return {
-            "aggregator_name": "Aggregator_1",
-            "aggregator_id": 1,
-            "ble_scan_duration_sec": 5,
-            "lora_tx_interval_sec": 5,
-            "company_id": 0xFFFF,
-            "protocol_version": 2,
-            "lora": {
-                "frequency": 868,
-                "bandwidth": 125.0,
-                "spreading_factor": 7,
-                "coding_rate": 5,
-                "sync_word": 0x12,
-                "power": -5,
-                "tcxo_voltage": 1.7
-            }
-        }
 
 CONFIG = load_config()
 
@@ -201,7 +184,6 @@ def build_lora_packet(readings):
     Build LoRa packet from sensor readings.
     
     Packet format (Protocol v2):
-    - 4 bytes: Waveshare address header (0x00 0x00 for broadcast + 2 channel bytes)
     - Byte 0: Aggregator ID
     - Byte 1: Machine count (N)
     - N × 7 bytes: Machine data
@@ -215,11 +197,8 @@ def build_lora_packet(readings):
     """
     aggregator_id = CONFIG.get("aggregator_id", 1)
     
-    # Start with Waveshare header (4 bytes: address + channel)
-    # Using broadcast address 0x00 0x00 and default channel bytes
-    packet = bytearray([0x00, 0x00, 0x00, 0x00])
-    
-    # Aggregator ID and machine count
+    # Start packet with aggregator ID and machine count
+    packet = bytearray()
     packet.append(aggregator_id)
     packet.append(len(readings))
     
@@ -301,35 +280,32 @@ def main():
             
             # Check if it's time to transmit
             current_time = time.monotonic()
-            if sensor_cache and (current_time - last_tx_time >= tx_interval):
-                # Build and send packet
-                packet = build_lora_packet(sensor_cache)
-                
-                print(f"\nTransmitting {len(sensor_cache)} readings via LoRa...")
-                led.value = True
-                sx.send(packet)
-                led.value = False
-                
-                print(f"Sent {len(packet)} bytes: {packet.hex()}")
-                last_tx_time = current_time
-                
-                blink_led(1, 0.05)  # Short blink for TX
-            
-            # If no BLE, send test packet periodically
-            if not BLE_AVAILABLE or not ble:
-                if current_time - last_tx_time >= tx_interval:
-                    # Send test packet
-                    test_packet = bytearray([0x00, 0x00, 0x00, 0x00])  # Waveshare header
+            if current_time - last_tx_time >= tx_interval:
+                if sensor_cache:
+                    # Build and send packet with sensor data
+                    packet = build_lora_packet(sensor_cache)
+                    
+                    print(f"\nTransmitting {len(sensor_cache)} readings via LoRa...")
+                    led.value = True
+                    sx.send(packet)
+                    led.value = False
+                    
+                    print(f"Sent {len(packet)} bytes: {packet.hex()}")
+                else:
+                    # Send heartbeat packet (no sensors found)
+                    test_packet = bytearray()
                     test_packet.append(CONFIG.get("aggregator_id", 1))  # Aggregator ID
                     test_packet.append(0)  # 0 machines (heartbeat)
                     
-                    print("Sending heartbeat...")
+                    print("Sending heartbeat (no sensors found)...")
                     led.value = True
                     sx.send(bytes(test_packet))
                     led.value = False
                     
-                    last_tx_time = current_time
-                    blink_led(1, 0.05)
+                    print(f"Sent heartbeat: {test_packet.hex()}")
+                
+                last_tx_time = current_time
+                blink_led(1, 0.05)  # Short blink for TX
             
             # Small delay between iterations
             time.sleep(0.1)

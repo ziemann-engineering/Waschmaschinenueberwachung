@@ -45,15 +45,13 @@ state_machine: StateMachine = None
 database: Database = None
 notification_manager: NotificationManager = None
 config: dict = None
-lora_receiver = None
 
 
 @app.route('/')
 def index():
     """Main page - all aggregators"""
     status = state_machine.get_all_status()
-    lora_connected = lora_receiver.is_connected if lora_receiver else False
-    return render_template('index.html', aggregators=status, config=config, lora_connected=lora_connected)
+    return render_template('index.html', aggregators=status, config=config)
 
 
 @app.route('/info')
@@ -78,8 +76,7 @@ def aggregator_page(name: str):
     status = state_machine.get_aggregator_status(aggregator_id)
     if not status:
         abort(404)
-    lora_connected = lora_receiver.is_connected if lora_receiver else False
-    return render_template('aggregator.html', aggregator=status, config=config, lora_connected=lora_connected)
+    return render_template('aggregator.html', aggregator=status, config=config)
 
 
 @app.route('/api/status')
@@ -147,6 +144,92 @@ def api_unsubscribe(subscription_id: str):
     abort(404)
 
 
+@app.route('/api/lora-data', methods=['POST'])
+def api_lora_data():
+    """HTTP endpoint to receive LoRa data from WiFi bridge"""
+    try:
+        # Expect JSON with hex encoded packet data
+        data = request.json
+        if not data or 'packet_data' not in data:
+            return jsonify({'error': 'Missing packet_data'}), 400
+        
+        # Decode the hex packet data
+        try:
+            packet_data = bytes.fromhex(data['packet_data'])
+        except Exception as e:
+            return jsonify({'error': f'Invalid hex packet data: {e}'}), 400
+        
+        # Parse the packet (same logic as LoRa receiver)
+        if len(packet_data) < 2:
+            return jsonify({'error': 'Packet too short'}), 400
+            
+        aggregator_id = packet_data[0]
+        machine_count = packet_data[1]
+        
+        logger.info(f"Received HTTP LoRa packet: aggregator={aggregator_id}, machines={machine_count}")
+        
+        # Handle heartbeat packets (0 machines)
+        if machine_count == 0:
+            logger.info(f"Received heartbeat from aggregator {aggregator_id}")
+            return jsonify({'success': True, 'type': 'heartbeat'})
+        
+        # Parse machine data
+        if len(packet_data) < 2 + (machine_count * 7):
+            return jsonify({'error': 'Packet too short for machine data'}), 400
+            
+        import struct
+        import time
+        
+        timestamp = time.time()
+        offset = 2
+        readings_processed = 0
+        
+        for i in range(machine_count):
+            if offset + 7 > len(packet_data):
+                break
+                
+            machine_type = packet_data[offset]
+            machine_id = packet_data[offset+1]
+            rms_x100 = struct.unpack('<H', packet_data[offset+2:offset+4])[0]
+            freq_x10 = struct.unpack('<H', packet_data[offset+4:offset+6])[0]
+            battery = packet_data[offset+6]
+            
+            from lora_receiver import MachineReading
+            reading = MachineReading(
+                aggregator_id=aggregator_id,
+                machine_type=machine_type,
+                machine_id=machine_id,
+                rms=rms_x100 / 100.0,
+                dominant_freq=freq_x10 / 10.0,
+                battery_percent=battery,
+                timestamp=timestamp
+            )
+            
+            # Process the reading (same as LoRa callback)
+            on_reading_received(reading)
+            
+            type_str = "W" if machine_type == 1 else "T"
+            logger.info(
+                f"[{type_str}] Machine {aggregator_id}/{machine_id}: "
+                f"RMS={reading.rms:.2f} m/s², "
+                f"Freq={reading.dominant_freq:.1f} Hz, "
+                f"Batt={reading.battery_percent}%"
+            )
+            
+            offset += 7
+            readings_processed += 1
+            
+        return jsonify({
+            'success': True, 
+            'type': 'data',
+            'readings_processed': readings_processed
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error processing LoRa data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ============================================================================
 # Data Processing
 # ============================================================================
@@ -210,11 +293,11 @@ def cleanup_loop():
 # ============================================================================
 
 def main():
-    global state_machine, database, notification_manager, config, lora_receiver
+    global state_machine, database, notification_manager, config
     
     parser = argparse.ArgumentParser(description='Washing Machine Monitoring Server')
     parser.add_argument('--config', default='config.json', help='Config file path')
-    parser.add_argument('--mock', action='store_true', help='Use mock LoRa receiver')
+    parser.add_argument('--mock', action='store_true', help='Use mock data generation')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     args = parser.parse_args()
     
@@ -223,7 +306,7 @@ def main():
     config = load_config(config_path)
     
     logger.info("=" * 60)
-    logger.info("Washing Machine Monitoring Server")
+    logger.info("Washing Machine Monitoring Server (HTTP Mode)")
     logger.info("=" * 60)
     
     # Initialize components
@@ -237,19 +320,6 @@ def main():
     database = Database(config.get('database_path', 'washing_machines.db'))
     notification_manager = NotificationManager(config)
     
-    # Initialize LoRa receiver
-    if args.mock:
-        logger.info("Using MOCK LoRa receiver")
-        lora_receiver = MockLoRaReceiver()
-    else:
-        logger.info(f"Connecting to LoRa on {config['serial_port']}")
-        lora_receiver = LoRaReceiver(
-            port=config['serial_port'],
-            baud_rate=config.get('serial_baud', 9600)
-        )
-        
-    lora_receiver.set_callback(on_reading_received)
-    
     # Start background threads
     offline_thread = threading.Thread(target=offline_check_loop, daemon=True)
     offline_thread.start()
@@ -257,13 +327,17 @@ def main():
     cleanup_thread = threading.Thread(target=cleanup_loop, daemon=True)
     cleanup_thread.start()
     
-    # Start LoRa receiver (continues even if connection fails)
-    lora_connected = lora_receiver.start()
-    if not lora_connected:
-        logger.warning("Server running without LoRa receiver - no data will be received")
+    # Start mock data if requested
+    if args.mock:
+        logger.info("Starting mock data generation")
+        from lora_receiver import MockLoRaReceiver
+        mock_receiver = MockLoRaReceiver()
+        mock_receiver.set_callback(on_reading_received)
+        mock_receiver.start()
     
     # Start Flask app
     logger.info(f"Starting web server on {config['web_host']}:{config['web_port']}")
+    logger.info(f"LoRa data endpoint: http://{config['web_host']}:{config['web_port']}/api/lora-data")
     app.run(
         host=config.get('web_host', '0.0.0.0'),
         port=config.get('web_port', 8080),

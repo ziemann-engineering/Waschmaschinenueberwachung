@@ -16,11 +16,7 @@
     </header>
 
     <main>
-        {% if not lora_connected %}
-        <div class="error-banner lora-error">
-            ❌ Server hat keinen LoRa-Empfänger
-        </div>
-        {% endif %}
+        <!-- No LoRa connection status needed in HTTP mode -->
         
         <div class="info-link-bar">
             <a href="/info" class="info-link">ℹ️ Was ist das?</a>
