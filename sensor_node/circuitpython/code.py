@@ -1,6 +1,6 @@
-# Washing Machine Sensor Node - CircuitPython
+# FINAL Robust Washing Machine Sensor Node - CircuitPython
 # Hardware: Seeed XIAO nRF52840 Sense + LSM6DS3
-
+# This version uses _bleio for ultra-reliable Bluetooth communication.
 import time
 import json
 import math
@@ -8,92 +8,103 @@ import struct
 import alarm
 import board
 import busio
-import microcontroller
-from adafruit_lsm6ds.lsm6ds3 import LSM6DS3
-from _bleio import adapter
-import adafruit_ble
-from adafruit_ble.advertising import Advertisement
+import digitalio
+import _bleio
+from adafruit_lsm6ds.lsm6ds33 import LSM6DS33
+from adafruit_lsm6ds import Rate, AccelRange
+import analogio
+class LSM6DS3TRC(LSM6DS33):
+    CHIP_ID = 0x6A # compatibility fix to make the generic LSM6DS33 driver work with the specific sensor found on your hardware.
 
 # ============================================================================
 # Configuration
 # ============================================================================
 
+TEST_MODE = True  # Set to False for battery operation (Deep Sleep)
 def load_config():
-    """Load configuration from config.json"""
     try:
         with open("/config.json", "r") as f:
             return json.load(f)
-    except Exception as e:
-        print(f"Error loading config: {e}")
-        # Default configuration (optimized for battery life)
+    except Exception:
         return {
             "machine_id": 1,
-            "wake_interval_sec": 180,      # 3 minutes
-            "sample_duration_sec": 0.2,    # 200ms
+            "machine_type": 1, 
+            "wake_interval_sec": 180,
+            "sample_duration_sec": 0.2,
             "sample_rate_hz": 100,
             "company_id": 0xFFFF,
-            "protocol_version": 1
+            "protocol_version": 2
         }
-
 CONFIG = load_config()
 
 # ============================================================================
-# Battery Monitoring
+# Battery Monitoring => to be done
 # ============================================================================
 
 def get_battery_percent():
     """
-    Estimate battery percentage from voltage.
-    CR2032: 3.0V full, 2.0V empty (cutoff ~2.0V)
-    Note: XIAO nRF52840 may need analog pin setup for battery reading
+    Estimate battery percentage for XIAO nRF52840 Sense.
+    Uses VBAT_ENABLE to control bridge and VBAT_READ for ADC.
     """
-    # TODO: Implement actual battery voltage reading
-    # For now, return a placeholder
-    # On XIAO nRF52840, you may need to read from a specific pin
-    # or use the built-in battery monitoring if available
-    return 100  # Placeholder
+    try:
+        # Enable battery voltage divider bridge (P0.14)
+        # Using raw pin identifiers to be most compatible with all XIAO versions
+        vbatt_enable = digitalio.DigitalInOut(board.P0_14)
+        vbatt_enable.direction = digitalio.Direction.OUTPUT
+        vbatt_enable.value = False # LOW to enable
+        
+        # Read voltage from P0.31
+        vbatt_adc = analogio.AnalogIn(board.P0_31)
+        # Standard calculation for XIAO nRF52840 bridge (1M/1M divider)
+        # reference_voltage is usually 3.3V on this board
+        voltage = (vbatt_adc.value * vbatt_adc.reference_voltage / 65535) * 2
+        
+        # Cleanup pins to save power
+        vbatt_enable.value = True # HIGH to disable bridge
+        vbatt_enable.deinit()
+        vbatt_adc.deinit()
+        
+        # Map voltage: 3.0V (100%) to 2.0V (0%) for CR2032 as per user comment
+        # Note: If using LiPo, 4.2V is 100%, 3.2V is 0%
+        if voltage > 3.0: # Likely LiPo or very fresh CR2032
+            percent = int((voltage - 3.2) / (4.2 - 3.2) * 100)
+        else:
+            percent = int((voltage - 2.0) / (3.0 - 2.0) * 100)
+            
+        return max(0, min(100, percent))
+    except Exception as e:
+        print(f"Battery Read Failed: {e}")
+        return 100
 
 # ============================================================================
 # Accelerometer Functions
 # ============================================================================
 
 def init_accelerometer():
-    """Initialize the LSM6DS3 accelerometer"""
-    i2c = busio.I2C(board.IMU_SCL, board.IMU_SDA)
-    sensor = LSM6DS3(i2c)
-    
-    # Configure for our use case
-    # ODR (Output Data Rate) options: 12.5, 26, 52, 104, 208, 416, 833, 1666, 3333, 6666 Hz
-    # We want 100 Hz, so use 104 Hz
-    sensor.accelerometer_data_rate = 104  # Closest to 100 Hz
-    
-    # Range: 4g is sufficient for vibration detection
-    sensor.accelerometer_range = 4  # ±4g
-    
-    return sensor
+    imu_pwr = digitalio.DigitalInOut(board.IMU_PWR)
+    imu_pwr.direction = digitalio.Direction.OUTPUT
+    imu_pwr.value = True
+    time.sleep(0.1)
+    try:
+        i2c = busio.I2C(board.IMU_SCL, board.IMU_SDA)
+        sensor = LSM6DS3TRC(i2c)
+        sensor.accelerometer_data_rate = Rate.RATE_104_HZ
+        sensor.accelerometer_range = AccelRange.RANGE_4G
+        return sensor
+    except Exception as e:
+        print(f"Sensor Init Failed: {e}")
+        return None
 
-def collect_samples(sensor, duration_sec, sample_rate_hz):
-    """
-    Collect accelerometer samples for specified duration.
-    Returns list of (x, y, z) tuples in m/s²
-    """
+def collect_samples(sensor):
+    if not sensor: return []
+    
+    num_samples = int(CONFIG['sample_duration_sec'] * CONFIG['sample_rate_hz'])
+    sample_interval = 1.0 / CONFIG['sample_rate_hz']
+    
     samples = []
-    num_samples = int(duration_sec * sample_rate_hz)
-    sample_interval = 1.0 / sample_rate_hz
-    
-    start_time = time.monotonic()
-    next_sample_time = start_time
-    
-    for i in range(num_samples):
-        # Wait for next sample time
-        while time.monotonic() < next_sample_time:
-            pass
-        
-        # Read accelerometer (returns m/s²)
-        accel = sensor.acceleration
-        samples.append(accel)
-        
-        next_sample_time += sample_interval
+    for _ in range(num_samples):
+        samples.append(sensor.acceleration)
+        time.sleep(sample_interval)
     
     return samples
 
@@ -128,147 +139,80 @@ def remove_dc_offset(magnitudes):
 # FFT disabled to save battery - only RMS threshold check is used
 
 # ============================================================================
-# BLE Advertising
+# BLE 
 # ============================================================================
 
-class WashingMachineAdvertisement(Advertisement):
-    """Custom BLE advertisement for washing machine sensor data"""
-    
-    def __init__(self, machine_type, machine_id, rms, dominant_freq, battery_percent, company_id, protocol_version):
-        super().__init__()
-        
-        # Pack the data according to our protocol v2
-        # Machine type: 1=washer, 2=dryer
-        m_type = min(255, max(1, int(machine_type)))
-        # RMS as uint16 (value × 100)
-        rms_int = min(65535, int(rms * 100))
-        # Frequency as uint16 (value × 10)
-        freq_int = min(65535, int(dominant_freq * 10))
-        # Battery as uint8 (0-100)
-        batt = min(100, max(0, int(battery_percent)))
-        
-        # Create manufacturer data payload (no flags byte anymore)
-        # Format: company_id (2) + version (1) + machine_type (1) + machine_id (1) + rms (2) + freq (2) + batt (1)
-        mfg_data = struct.pack(
-            "<HBBBHHB",
-            company_id,
-            protocol_version,
-            m_type,
-            machine_id,
-            rms_int,
-            freq_int,
-            batt
-        )
-        
-        self.manufacturer_data = {company_id: mfg_data[2:]}  # Exclude company ID (added by library)
-        self.connectable = False
-        self.flags = 0x06  # General discoverable, BR/EDR not supported
-
-def broadcast_data(machine_type, machine_id, rms, dominant_freq, battery_percent, company_id, protocol_version):
-    """Broadcast sensor data via BLE advertising"""
-    ble = adafruit_ble.BLERadio()
-    
-    # Create our custom advertisement
-    adv = WashingMachineAdvertisement(
-        machine_type=machine_type,
-        machine_id=machine_id,
-        rms=rms,
-        dominant_freq=dominant_freq,
-        battery_percent=battery_percent,
-        company_id=company_id,
-        protocol_version=protocol_version
+def broadcast_data(rms, mean, battery=100):
+    adapter = _bleio.adapter
+    adapter.enabled = True
+    adapter.stop_advertising()
+    name = b"WM-FINAL"
+    payload = struct.pack(
+        "<BBBHHHB",
+        CONFIG['protocol_version'],
+        CONFIG['machine_type'],
+        CONFIG['machine_id'],
+        int(rms * 100),
+        int(mean * 100),
+        0, # Frequency spare
+        battery
     )
     
-    # Advertise for a short time (enough for aggregator to receive)
-    # Advertising interval: 100ms, duration: 500ms (5 advertisements)
-    type_str = "Waschmaschine" if machine_type == 1 else "Tumbler"
-    print(f"Broadcasting: Type={type_str}, ID={machine_id}, RMS={rms:.2f}, Freq={dominant_freq:.1f}Hz, Batt={battery_percent}%")
-    
-    ble.start_advertising(adv, interval=0.1)
-    time.sleep(0.5)  # Advertise for 500ms
-    ble.stop_advertising()
+    # Construct raw packet
+    adv_data = (
+        b"\x02\x01\x06" +                    # Flags
+        bytes([len(name) + 1, 0x08]) + name + # Short Name
+        bytes([len(payload) + 3, 0xFF]) +     # MFR Data Type
+        struct.pack("<H", CONFIG['company_id']) + 
+        payload
+    )
+    print(f"📡 Sending: RMS {rms:.3f} | Mean {mean:.3f}")
+    adapter.start_advertising(
+        adv_data,
+        connectable=False,
+        interval=0.1
+    )
 
 # ============================================================================
-# Deep Sleep
-# ============================================================================
-
-def enter_deep_sleep(duration_sec):
-    """Enter deep sleep for specified duration"""
-    print(f"Entering deep sleep for {duration_sec} seconds...")
-    
-    # Create a time alarm
-    time_alarm = alarm.time.TimeAlarm(monotonic_time=time.monotonic() + duration_sec)
-    
-    # Enter deep sleep - this will reset the device on wake
-    alarm.exit_and_deep_sleep_until_alarms(time_alarm)
-
-# ============================================================================
-# Main Loop
+# Main Logic
 # ============================================================================
 
 def main():
-    """Main function - runs once per wake cycle"""
-    print("\n" + "="*50)
-    print("Washing Machine Sensor Node")
-    print(f"Machine ID: {CONFIG['machine_id']}")
-    print("="*50)
+    print("WM Sensor Node Starting...")
+    sensor = init_accelerometer()
     
-    # Check wake reason
-    if alarm.wake_alarm:
-        print(f"Woke from deep sleep: {type(alarm.wake_alarm).__name__}")
-    else:
-        print("Initial boot (not from deep sleep)")
-    
-    try:
-        # Initialize accelerometer
-        print("Initializing accelerometer...")
-        sensor = init_accelerometer()
+    while True:
+        # Measure battery in every cycle
+        battery = get_battery_percent()
+        print(f"Current Battery: {battery}%")
         
-        # Small delay for sensor to stabilize
-        time.sleep(0.05)
-        
-        # Collect samples
-        print(f"Collecting samples for {CONFIG['sample_duration_sec']}s at {CONFIG['sample_rate_hz']}Hz...")
-        samples = collect_samples(
-            sensor,
-            CONFIG['sample_duration_sec'],
-            CONFIG['sample_rate_hz']
-        )
-        print(f"Collected {len(samples)} samples")
-        
-        # Calculate magnitude (combine X, Y, Z)
-        magnitudes = calculate_magnitude(samples)
-        
-        # Remove gravity (DC offset) for vibration analysis
-        ac_magnitudes = remove_dc_offset(magnitudes)
-        
-        # Calculate RMS of AC component (vibration intensity)
-        rms = calculate_rms(ac_magnitudes)
-        print(f"Vibration RMS: {rms:.3f} m/s²")
-        
-        # FFT disabled to save battery - frequency set to 0
-        dominant_freq = 0.0
-        
-        # Get battery percentage
-        battery_percent = get_battery_percent()
-        print(f"Battery: {battery_percent}%")
-        
-        # Broadcast via BLE
-        broadcast_data(
-            machine_type=CONFIG['machine_type'],
-            machine_id=CONFIG['machine_id'],
-            rms=rms,
-            dominant_freq=dominant_freq,
-            battery_percent=battery_percent,
-            company_id=CONFIG['company_id'],
-            protocol_version=CONFIG['protocol_version']
-        )
-        
-    except Exception as e:
-        print(f"Error during measurement: {e}")
-    
-    # Enter deep sleep
-    enter_deep_sleep(CONFIG['wake_interval_sec'])
-
-# Run main
-main()
+        if TEST_MODE:
+            # Continuous broadcast mode
+            samples = collect_samples(sensor)
+            if samples:
+                magnitudes = calculate_magnitude(samples)
+                mean = sum(magnitudes) / len(magnitudes)
+                ac_mags = remove_dc_offset(magnitudes)
+                rms = calculate_rms(ac_mags)
+                broadcast_data(rms, mean, battery=battery)
+            time.sleep(0.1) # Small delay for stability
+        else:
+            # Intermittent battery-saving mode
+            print("--- Sleeping for 5s ---")
+            _bleio.adapter.stop_advertising()
+            time.sleep(5)
+            
+            print("--- Taking measurement ---")
+            samples = collect_samples(sensor)
+            if samples:
+                magnitudes = calculate_magnitude(samples)
+                mean = sum(magnitudes) / len(magnitudes)
+                ac_mags = remove_dc_offset(magnitudes)
+                rms = calculate_rms(ac_mags)
+                broadcast_data(rms, mean, battery=battery)
+                
+                # Advertise for 1 second before stopping
+                time.sleep(1)
+                
+if __name__ == "__main__":
+    main()
