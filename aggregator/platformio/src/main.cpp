@@ -15,6 +15,18 @@
 #include <LoRa.h>
 #include "config.h"
 
+// CRC-32 calculation
+uint32_t crc32(const uint8_t* data, size_t length) {
+    uint32_t crc = 0xFFFFFFFF;
+    for (size_t i = 0; i < length; i++) {
+        crc ^= data[i];
+        for (int j = 0; j < 8; j++) {
+            crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
+        }
+    }
+    return ~crc;
+}
+
 // ============================================================================
 // Data Structures
 // ============================================================================
@@ -218,13 +230,13 @@ void sendAggregatedLoRaPacket() {
         return;
     }
     
-    // Build packet
-    uint8_t packet[2 + (MAX_MACHINES_PER_PACKET * 6)];
+    // Build packet with CRC-32
+    uint8_t packet[2 + (MAX_MACHINES_PER_PACKET * 6) + 4];  // +4 for CRC
     packet[0] = AGGREGATOR_ID;
     packet[1] = validCount;
     
     int offset = 2;
-    for (int i = 0; i < sensorCount && offset < sizeof(packet) - 6; i++) {
+    for (int i = 0; i < sensorCount && offset < sizeof(packet) - 10; i++) {
         if (sensorCache[i].valid) {
             packet[offset++] = sensorCache[i].machineId;
             packet[offset++] = sensorCache[i].rmsX100 & 0xFF;
@@ -235,8 +247,15 @@ void sendAggregatedLoRaPacket() {
         }
     }
     
+    // Calculate and append CRC-32
+    uint32_t crc = crc32(packet, offset);
+    packet[offset++] = crc & 0xFF;
+    packet[offset++] = (crc >> 8) & 0xFF;
+    packet[offset++] = (crc >> 16) & 0xFF;
+    packet[offset++] = (crc >> 24) & 0xFF;
+    
     #if DEBUG_SERIAL
-    Serial.printf("Sending aggregated LoRa packet with %d machines\n", validCount);
+    Serial.printf("Sending aggregated LoRa packet with %d machines (CRC: 0x%08X)\n", validCount, crc);
     #endif
     
     LoRa.beginPacket();

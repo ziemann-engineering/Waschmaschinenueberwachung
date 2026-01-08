@@ -1,6 +1,6 @@
 {
-    "aggregator_name": "Building_A_Floor_1",
-    "aggregator_id": 1,
+    "aggregator_name": "D2",
+    "aggregator_id": 2,
     "ble_scan_duration_sec": 5,
     "lora_tx_interval_sec": 5,
     "company_id": 65535,
@@ -11,7 +11,7 @@
         "spreading_factor": 7,
         "coding_rate": 5,
         "sync_word": 18,
-        "power": -5,
+        "power": 22, 
         "tcxo_voltage": 1.7
     }
 }

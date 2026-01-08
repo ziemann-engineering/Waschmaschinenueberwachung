@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "SSH FS - rpi5",
+			"uri": "ssh://rpi5/home/thomas/wms"
+		}
+	],
+	"settings": {}
+}

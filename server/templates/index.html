@@ -16,7 +16,11 @@
     </header>
 
     <main>
-        <!-- No LoRa connection status needed in HTTP mode -->
+        {% if not receiver_connected %}
+        <div class="error-banner receiver-error">
+            ❌ Diese Server-Software konnte keinen LoRa-Empfänger finden. Wahrscheinlich ist kein Empfänger an und mit dem WLAN verbunden.
+        </div>
+        {% endif %}
         
         <div class="info-link-bar">
             <a href="/info" class="info-link">ℹ️ Was ist das?</a>

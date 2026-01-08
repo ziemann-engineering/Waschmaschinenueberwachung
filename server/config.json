@@ -9,7 +9,7 @@
     },
     "web_host": "0.0.0.0",
     "web_port": 80,
-    "database_path": "washing_machines.db",
+    "database_path": "../data/washing_machines.db",
     "low_battery_percent": 20,
     "thresholds": {
         "running_rms": 0.5,

@@ -13,6 +13,7 @@ import struct
 import board
 import microcontroller
 import digitalio
+import binascii
 
 # SX1262 LoRa module
 from sx1262 import SX1262
@@ -192,6 +193,7 @@ def build_lora_packet(readings):
       - Bytes 2-3: RMS × 100 (uint16, little-endian)
       - Bytes 4-5: Freq × 10 (uint16, little-endian)  
       - Byte 6: Battery %
+    - Last 4 bytes: CRC-32 checksum (little-endian)
     
     Returns bytes
     """
@@ -209,6 +211,10 @@ def build_lora_packet(readings):
         packet.extend(struct.pack('<H', reading.rms_x100))
         packet.extend(struct.pack('<H', reading.freq_x10))
         packet.append(reading.battery_percent)
+    
+    # Calculate CRC-32 of the packet data
+    crc = binascii.crc32(bytes(packet))
+    packet.extend(struct.pack('<I', crc))
     
     return bytes(packet)
 

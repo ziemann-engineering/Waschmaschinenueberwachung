@@ -46,22 +46,13 @@ state_machine: StateMachine = None
 database: Database = None
 notification_manager: NotificationManager = None
 config: dict = None
-last_receiver_contact: float = 0  # Timestamp of last contact from WiFi bridge
-
-
-def is_receiver_connected() -> bool:
-    """Check if WiFi bridge has contacted server in last 3 minutes"""
-    return (time.time() - last_receiver_contact) < 180
 
 
 @app.route('/')
 def index():
     """Main page - all aggregators"""
     status = state_machine.get_all_status()
-    return render_template('index.html', 
-                          aggregators=status, 
-                          config=config,
-                          receiver_connected=is_receiver_connected())
+    return render_template('index.html', aggregators=status, config=config)
 
 
 @app.route('/info')
@@ -157,20 +148,9 @@ def api_unsubscribe(subscription_id: str):
 @app.route('/api/lora-data', methods=['POST'])
 def api_lora_data():
     """HTTP endpoint to receive LoRa data from WiFi bridge"""
-    global last_receiver_contact
-    
     try:
-        # Update last receiver contact time
-        last_receiver_contact = time.time()
-        
-        # Expect JSON with hex encoded packet data or keepalive
+        # Expect JSON with hex encoded packet data
         data = request.json
-        
-        # Handle keepalive packet
-        if data and data.get('keepalive'):
-            logger.debug("Received keepalive from WiFi bridge")
-            return jsonify({'success': True, 'type': 'keepalive'})
-        
         if not data or 'packet_data' not in data:
             return jsonify({'error': 'Missing packet_data'}), 400
         
