@@ -40,6 +40,7 @@ TX_MODE = digitalio.DigitalInOut(microcontroller.pin.GPIO38)
 TX_MODE.direction = digitalio.Direction.OUTPUT
 TX_MODE.value = True  # Set to TX mode
 
+
 # ============================================================================
 # Configuration
 # ============================================================================
@@ -60,10 +61,11 @@ CONFIG = load_config()
 
 class SensorReading:
     """Stores a reading from a sensor node"""
-    def __init__(self, machine_type, machine_id, rms_x100, freq_x10, battery_percent):
+    def __init__(self, machine_type, machine_id, rms_x100, mean_x100, freq_x10, battery_percent):
         self.machine_type = machine_type  # 1=washer, 2=dryer
         self.machine_id = machine_id
         self.rms_x100 = rms_x100
+        self.mean_x100 = mean_x100
         self.freq_x10 = freq_x10
         self.battery_percent = battery_percent
         self.timestamp = time.monotonic()
@@ -124,56 +126,33 @@ def init_lora():
 # ============================================================================
 
 def scan_for_sensors(ble, duration_sec):
-    """
-    Scan for BLE advertisements from washing machine sensors.
-    
-    Returns dict of machine_id -> SensorReading
-    """
     found_sensors = {}
+    TARGET_ID = 0xFFFF
     
     if not BLE_AVAILABLE or ble is None:
         return found_sensors
+        
+    print(f"Scanning for MFR Data {hex(TARGET_ID)} (timeout={duration_sec}s)...")
     
-    print(f"Scanning BLE for {duration_sec}s...")
-    
-    for advertisement in ble.start_scan(timeout=duration_sec, minimum_rssi=-90):
-        # Check for manufacturer data
-        if not hasattr(advertisement, 'manufacturer_data') or not advertisement.manufacturer_data:
-            continue
-        
-        # Look for our company ID
-        company_id = CONFIG.get("company_id", 0xFFFF)
-        if company_id not in advertisement.manufacturer_data:
-            continue
-        
-        mfr_data = advertisement.manufacturer_data[company_id]
-        
-        # Parse sensor data
-        # Protocol v2: [version, type, machine_id, rms_hi, rms_lo, freq_hi, freq_lo, battery]
-        if len(mfr_data) >= 8 and mfr_data[0] == 2:  # Protocol version 2
-            machine_type = mfr_data[1]
-            machine_id = mfr_data[2]
-            rms_x100 = (mfr_data[3] << 8) | mfr_data[4]
-            freq_x10 = (mfr_data[5] << 8) | mfr_data[6]
-            battery = mfr_data[7]
+    scan_count = 0
+    try:
+        for advertisement in ble.start_scan(timeout=duration_sec):
+            scan_count += 1
             
-            reading = SensorReading(machine_type, machine_id, rms_x100, freq_x10, battery)
-            found_sensors[(machine_type, machine_id)] = reading
-            print(f"  Found: {reading}")
-        
-        # Protocol v1 (legacy): [version, machine_id, rms_hi, rms_lo, freq_hi, freq_lo, battery]
-        elif len(mfr_data) >= 7 and mfr_data[0] == 1:
-            machine_id = mfr_data[1]
-            rms_x100 = (mfr_data[2] << 8) | mfr_data[3]
-            freq_x10 = (mfr_data[4] << 8) | mfr_data[5]
-            battery = mfr_data[6]
-            
-            # Default to washer for v1
-            reading = SensorReading(1, machine_id, rms_x100, freq_x10, battery)
-            found_sensors[(1, machine_id)] = reading
-            print(f"  Found (v1): {reading}")
+            reading = parse_mfr_data(advertisement, TARGET_ID)
+            if reading:
+                key = (reading.machine_type, reading.machine_id)
+                found_sensors[key] = reading
+           
+    finally:
+        ble.stop_scan()
+        if found_sensors:
+            print(f"Scan complete. Found {len(found_sensors)} unique sensors ({scan_count} packets).")
+            for reading in found_sensors.values():
+                status = "🔴" if reading.rms > 0.5 else "⚪"
+                bar = '█' * min(20, int(reading.rms * 10))
+                print(f"  {status} Machine {reading.machine_id}: RMS {reading.rms:.3f} | Mean {reading.mean:.2f} | Batt {reading.battery_percent}% | {bar}")
     
-    ble.stop_scan()
     return found_sensors
 
 # ============================================================================
@@ -185,22 +164,26 @@ def build_lora_packet(readings):
     Build LoRa packet from sensor readings.
     
     Packet format (Protocol v2):
+    - 4 bytes: Waveshare address header (0x00 0x00 for broadcast + 2 channel bytes)
     - Byte 0: Aggregator ID
     - Byte 1: Machine count (N)
-    - N × 7 bytes: Machine data
+    - N × 9 bytes: Machine data
       - Byte 0: Machine type (1=washer, 2=dryer)
       - Byte 1: Machine ID
       - Bytes 2-3: RMS × 100 (uint16, little-endian)
-      - Bytes 4-5: Freq × 10 (uint16, little-endian)  
-      - Byte 6: Battery %
-    - Last 4 bytes: CRC-32 checksum (little-endian)
+      - Bytes 4-5: Mean × 100 (uint16, little-endian)
+      - Bytes 6-7: Freq × 10 (uint16, little-endian)  
+      - Byte 8: Battery %
     
     Returns bytes
     """
     aggregator_id = CONFIG.get("aggregator_id", 1)
     
-    # Start packet with aggregator ID and machine count
-    packet = bytearray()
+    # Start with Waveshare header (4 bytes: address + channel)
+    # Using broadcast address 0x00 0x00 and default channel bytes
+    packet = bytearray([0x00, 0x00, 0x00, 0x00])
+    
+    # Aggregator ID and machine count
     packet.append(aggregator_id)
     packet.append(len(readings))
     
@@ -209,6 +192,7 @@ def build_lora_packet(readings):
         packet.append(reading.machine_type)
         packet.append(reading.machine_id)
         packet.extend(struct.pack('<H', reading.rms_x100))
+        packet.extend(struct.pack('<H', reading.mean_x100))
         packet.extend(struct.pack('<H', reading.freq_x10))
         packet.append(reading.battery_percent)
     
@@ -274,44 +258,48 @@ def main():
                 new_readings = scan_for_sensors(ble, scan_duration)
                 
                 # Update cache with new readings
+                # Update cache
                 for key, reading in new_readings.items():
                     sensor_cache[key] = reading
-                
-                # Remove stale readings (older than 60 seconds)
+
+                # Remove stale readings older than 60s
                 current_time = time.monotonic()
-                stale_keys = [k for k, v in sensor_cache.items() 
-                             if current_time - v.timestamp > 60]
-                for key in stale_keys:
-                    del sensor_cache[key]
+                stale_keys = [k for k, v in sensor_cache.items() if current_time - v.timestamp > 60]
+                for k in stale_keys:
+                    del sensor_cache[k]
+
             
             # Check if it's time to transmit
             current_time = time.monotonic()
-            if current_time - last_tx_time >= tx_interval:
-                if sensor_cache:
-                    # Build and send packet with sensor data
-                    packet = build_lora_packet(sensor_cache)
-                    
-                    print(f"\nTransmitting {len(sensor_cache)} readings via LoRa...")
-                    led.value = True
-                    sx.send(packet)
-                    led.value = False
-                    
-                    print(f"Sent {len(packet)} bytes: {packet.hex()}")
-                else:
-                    # Send heartbeat packet (no sensors found)
-                    test_packet = bytearray()
+            if sensor_cache and (current_time - last_tx_time >= tx_interval):
+                # Build and send packet
+                packet = build_lora_packet(sensor_cache)
+                
+                print(f"\nTransmitting {len(sensor_cache)} readings via LoRa...")
+                led.value = True
+                sx.send(packet)
+                led.value = False
+                
+                print(f"Sent {len(packet)} bytes: {packet.hex()}")
+                last_tx_time = current_time
+                
+                blink_led(1, 0.05)  # Short blink for TX
+            
+            # If no BLE, send test packet periodically
+            if not BLE_AVAILABLE or not ble:
+                if current_time - last_tx_time >= tx_interval:
+                    # Send test packet
+                    test_packet = bytearray([0x00, 0x00, 0x00, 0x00])  # Waveshare header
                     test_packet.append(CONFIG.get("aggregator_id", 1))  # Aggregator ID
                     test_packet.append(0)  # 0 machines (heartbeat)
                     
-                    print("Sending heartbeat (no sensors found)...")
+                    print("Sending heartbeat...")
                     led.value = True
                     sx.send(bytes(test_packet))
                     led.value = False
                     
-                    print(f"Sent heartbeat: {test_packet.hex()}")
-                
-                last_tx_time = current_time
-                blink_led(1, 0.05)  # Short blink for TX
+                    last_tx_time = current_time
+                    blink_led(1, 0.05)
             
             # Small delay between iterations
             time.sleep(0.1)
@@ -320,6 +308,75 @@ def main():
             print(f"Error in main loop: {e}")
             blink_led(5, 0.1, 0.1)  # Error indication
             time.sleep(1)
+
+
+def parse_mfr_data(advertisement, target_company_id=0xFFFF):
+    """
+    Parse the manufacturer data from a BLE advertisement.
+    Supports both v1 (6 bytes) and v2 (8 bytes) packets.
+    """
+    mfr = getattr(advertisement, "manufacturer_data", None)
+    if not mfr:
+        # Aggregator library fallback: Check raw data_dict for 0xFF (255)
+        raw_mfr = getattr(advertisement, "data_dict", {}).get(255)
+        if raw_mfr and len(raw_mfr) >= 2:
+            cid = struct.unpack("<H", raw_mfr[:2])[0]
+            mfr = {cid: raw_mfr[2:]}
+            
+    if not mfr:
+        return None
+
+    data = mfr.get(target_company_id, None)
+    if not data:
+        return None  # No matching company ID
+
+    try:
+
+        protocol_version = data[0]
+        machine_type     = data[1]
+        machine_id       = data[2]
+
+        # Handle v1 packets (6 bytes)
+        if len(data) == 6:
+            rms_x100 = data[3] | (data[4] << 8)
+            mean_x100 = 981  # Default 9.81
+            freq_x10 = data[5]
+            battery  = 100  # Default battery for v1
+        # Handle v2 packets (8 bytes - no mean)
+        elif len(data) == 8:
+            rms_x100 = data[3] | (data[4] << 8)
+            mean_x100 = 981  # Default 9.81
+            freq_x10 = data[5] | (data[6] << 8)
+            battery  = data[7]
+        # Handle v2 packets (10 bytes - with mean)
+        elif len(data) >= 10:
+            rms_x100 = data[3] | (data[4] << 8)
+            mean_x100 = data[5] | (data[6] << 8)
+            freq_x10 = data[7] | (data[8] << 8)
+            battery  = data[9]
+        else:
+            return None  # Too short
+
+        rms = rms_x100 / 100.0
+        mean = mean_x100 / 100.0
+
+        reading = SensorReading(
+            machine_type=machine_type,
+            machine_id=machine_id,
+            rms_x100=rms_x100,
+            mean_x100=mean_x100,
+            freq_x10=freq_x10,
+            battery_percent=battery
+        )
+        reading.rms = rms
+        reading.mean = mean
+
+        return reading
+
+    except Exception as e:
+        print(f"Failed to parse manufacturer data: {e}")
+        return None
+
 
 # ============================================================================
 # Entry Point
