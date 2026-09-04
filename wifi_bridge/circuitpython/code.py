@@ -176,7 +176,8 @@ def connect_wifi():
 # HTTP request setup
 pool = socketpool.SocketPool(wifi.radio)
 requests = requests.Session(pool, ssl.create_default_context())
-server_url = f"http://{config['server']['host']}:{config['server']['port']}{config['server']['endpoint']}"
+server_host = config['server']['host'].rstrip('/')
+server_url = f"{server_host}:{config['server']['port']}{config['server']['endpoint']}"
 
 def send_to_server(packet_data):
     """Send LoRa packet to server via HTTP POST"""

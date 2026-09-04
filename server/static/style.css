@@ -29,6 +29,35 @@ body {
     min-height: 100vh;
 }
 
+.admin-main {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    overflow-x: auto;
+}
+
+.sensor-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--card-bg);
+    box-shadow: var(--shadow);
+}
+
+.sensor-table th,
+.sensor-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #dfe6e9;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.sensor-table select,
+.sensor-table button {
+    max-width: 100%;
+    padding: 0.4rem;
+    margin: 0.15rem;
+}
+
 /* Header */
 header {
     background: linear-gradient(135deg, #667eea 0%, #27ae60 100%);
@@ -277,8 +306,28 @@ main {
 }
 
 .machine-icon {
+    display: block;
     font-size: 2rem;
+}
+
+.machine-icon-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     margin-bottom: 0.5rem;
+    border-radius: 8px;
+    color: inherit;
+    text-decoration: none;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.machine-icon-link:hover {
+    transform: scale(1.1);
+}
+
+.machine-icon-link:focus-visible {
+    outline: 3px solid #3157a4;
+    outline-offset: 3px;
 }
 
 .machine-info {
@@ -340,7 +389,13 @@ main {
 }
 
 .machine-icon-large {
+    display: block;
     font-size: 2.5rem;
+    flex-shrink: 0;
+}
+
+.machine-detail-card .machine-icon-link {
+    margin-bottom: 0;
     flex-shrink: 0;
 }
 
@@ -379,19 +434,6 @@ main {
 
 .stat-value.low-battery {
     color: var(--color-running);
-}
-
-.machine-history-link {
-    display: inline-block;
-    margin-top: 0.65rem;
-    color: #3157a4;
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-decoration: none;
-}
-
-.machine-history-link:hover {
-    text-decoration: underline;
 }
 
 /* Sensor history */

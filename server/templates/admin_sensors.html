@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sensorzuordnung - Waschmaschinen-Status</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header>
+        <nav class="nav-bar"><a href="/" class="back-link">Zur Übersicht</a></nav>
+        <h1>Sensorzuordnung</h1>
+    </header>
+    <main class="admin-main">
+        <table class="sensor-table">
+            <thead>
+                <tr><th>BLE-ID</th><th>Letzter Aggregator</th><th>Zuordnungstaste</th><th>Zuordnung</th><th>Aktion</th></tr>
+            </thead>
+            <tbody>
+            {% for sensor in sensors %}
+                <tr>
+                    <td><code>{{ sensor.sensor_id }}</code></td>
+                    <td>{{ aggregators.get(sensor.last_aggregator_id|string, {}).get('name', sensor.last_aggregator_id) }}</td>
+                    <td>{{ format_timestamp(sensor.last_assignment_flag_at) }}</td>
+                    <td>
+                        <select class="assignment-aggregator" data-sensor-id="{{ sensor.sensor_id }}">
+                            {% for aggregator_id, aggregator in aggregators.items() %}
+                            <option value="{{ aggregator_id }}" {% if sensor.assigned_aggregator_id == aggregator_id|int %}selected{% endif %}>{{ aggregator.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <select class="assignment-machine" data-sensor-id="{{ sensor.sensor_id }}">
+                            {% for aggregator_id, aggregator in aggregators.items() %}
+                                {% for machine_id, machine in aggregator.machines.items() %}
+                                <option value="{{ aggregator_id }}:{{ machine.type }}:{{ machine_id }}" {% if sensor.assigned_aggregator_id == aggregator_id|int and sensor.machine_id == machine_id|int %}selected{% endif %}>{{ machine.name }}</option>
+                                {% endfor %}
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td><button class="assign-sensor" data-sensor-id="{{ sensor.sensor_id }}">Speichern</button></td>
+                </tr>
+            {% else %}
+                <tr><td colspan="5">Noch keine Sensoren empfangen.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </main>
+    <script>
+        document.querySelectorAll('.assign-sensor').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const sensorId = button.dataset.sensorId;
+                const aggregator = document.querySelector(`.assignment-aggregator[data-sensor-id="${sensorId}"]`).value;
+                const [machineAggregator, machineType, machineId] = document.querySelector(`.assignment-machine[data-sensor-id="${sensorId}"]`).value.split(':');
+                if (aggregator !== machineAggregator) {
+                    alert('Maschine und Aggregator muessen zusammenpassen.');
+                    return;
+                }
+                const response = await fetch(`/api/admin/sensors/${sensorId}/assignment`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({aggregator_id: aggregator, machine_type: machineType, machine_id: machineId})
+                });
+                if (!response.ok) alert(await response.text());
+                else window.location.reload();
+            });
+        });
+    </script>
+</body>
+</html>

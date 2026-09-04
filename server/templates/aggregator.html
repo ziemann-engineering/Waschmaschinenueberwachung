@@ -46,7 +46,9 @@
             <h2 class="section-title">💧 Waschmaschinen</h2>
             {% for machine in aggregator.washers %}
             <div class="machine-detail-card state-{{ machine.state }}">
-                <div class="machine-icon-large">{{ machine.state_icon }}</div>
+                <a class="machine-icon-link" href="{{ url_for('machine_history_page', aggregator_name=aggregator.name, machine_id=machine.machine_id) }}" aria-label="Messverlauf für {{ machine.name }}" title="Messverlauf für {{ machine.name }}">
+                    <span class="machine-icon-large">{{ machine.state_icon }}</span>
+                </a>
                 
                 <div class="machine-details">
                     <h3>{{ machine.name }}</h3>
@@ -79,7 +81,6 @@
                         </div>
                         {% endif %}
                     </div>
-                    <a class="machine-history-link" href="{{ url_for('machine_history_page', aggregator_id=aggregator.id, machine_id=machine.machine_id) }}">Messverlauf anzeigen</a>
                 </div>
             </div>
             {% endfor %}
@@ -92,7 +93,9 @@
             <h2 class="section-title">🌀 Tumbler</h2>
             {% for machine in aggregator.dryers %}
             <div class="machine-detail-card state-{{ machine.state }}">
-                <div class="machine-icon-large">{{ machine.state_icon }}</div>
+                <a class="machine-icon-link" href="{{ url_for('machine_history_page', aggregator_name=aggregator.name, machine_id=machine.machine_id) }}" aria-label="Messverlauf für {{ machine.name }}" title="Messverlauf für {{ machine.name }}">
+                    <span class="machine-icon-large">{{ machine.state_icon }}</span>
+                </a>
                 
                 <div class="machine-details">
                     <h3>{{ machine.name }}</h3>
@@ -125,7 +128,6 @@
                         </div>
                         {% endif %}
                     </div>
-                    <a class="machine-history-link" href="{{ url_for('machine_history_page', aggregator_id=aggregator.id, machine_id=machine.machine_id) }}">Messverlauf anzeigen</a>
                 </div>
             </div>
             {% endfor %}

@@ -3,6 +3,7 @@ Test script to simulate WiFi bridge sending data to server
 """
 
 import requests
+import binascii
 import struct
 import time
 
@@ -14,35 +15,38 @@ def encode_battery_voltage(voltage):
     return round((voltage - 1.0) * 100)
 
 
-def create_test_packet(aggregator_id=1, machines=None):
+def create_test_packet(aggregator_id=1, sensors=None):
     """
     Create a test LoRa packet
     
     Args:
-        aggregator_id: Aggregator ID (1-255)
-        machines: List of dicts with keys: type, id, rms, freq, battery_voltage
-              Example: [{'type': 1, 'id': 1, 'rms': 2.5, 'freq': 50.0, 'battery_voltage': 2.85}]
+                aggregator_id: Aggregator ID (1-255)
+                sensors: List of dicts with keys: sensor_id, assignment_active, rms, freq, battery_voltage
+                        Example: [{'sensor_id': 'C1A2B3C4D5E6', 'assignment_active': True,
+                                             'rms': 2.5, 'freq': 50.0, 'battery_voltage': 2.85}]
     """
-    if machines is None:
-        # Create heartbeat packet (0 machines)
-        packet = bytes([aggregator_id, 0])
+    if sensors is None:
+        payload = bytes([aggregator_id, 0])
     else:
-        # Create data packet
-        packet = bytes([aggregator_id, len(machines)])
+        payload = bytes([aggregator_id, len(sensors)])
         
-        for machine in machines:
-            machine_type = machine['type']  # 1=washer, 2=dryer
-            machine_id = machine['id']
-            rms_x100 = int(machine['rms'] * 100)
-            freq_x10 = int(machine['freq'] * 10)
-            battery = encode_battery_voltage(machine['battery_voltage'])
+        for sensor in sensors:
+            sensor_id = bytes.fromhex(sensor['sensor_id'])
+            if len(sensor_id) != 6:
+                raise ValueError('sensor_id must contain six hexadecimal bytes')
+            rms_x1000 = int(sensor['rms'] * 1000)
+            freq_x10 = int(sensor['freq'] * 10)
+            battery = encode_battery_voltage(sensor['battery_voltage'])
             
-            # Pack machine data (7 bytes per machine)
-            packet += bytes([machine_type, machine_id])
-            packet += struct.pack('<H', rms_x100)  # 2 bytes, little-endian
-            packet += struct.pack('<H', freq_x10)  # 2 bytes, little-endian
-            packet += bytes([battery])
-    
+            payload += sensor_id
+            payload += bytes([1 if sensor.get('assignment_active') else 0])
+            payload += struct.pack('<H', rms_x1000)
+            payload += struct.pack('<H', freq_x10)
+            payload += bytes([battery])
+            payload += struct.pack('b', sensor.get('rssi', -60))
+
+    packet = bytes([0, 0, 0, 0]) + payload
+    packet += struct.pack('<I', binascii.crc32(packet) & 0xffffffff)
     return packet
 
 
@@ -71,54 +75,49 @@ def send_to_server(packet_data, server_url="http://127.0.0.1:8080/api/lora-data"
 def test_heartbeat():
     """Test sending a heartbeat packet"""
     print("\n=== Testing Heartbeat ===")
-    packet = create_test_packet(aggregator_id=1, machines=None)
+    packet = create_test_packet(aggregator_id=1)
     send_to_server(packet)
 
 
-def test_single_machine():
-    """Test sending data for a single machine"""
-    print("\n=== Testing Single Machine ===")
-    machines = [
+def test_single_sensor():
+    """Test sending data for a single sensor."""
+    print("\n=== Testing Single Sensor ===")
+    sensors = [
         {
-            'type': 1,      # Washer
-            'id': 1,        # Machine ID 1
+            'sensor_id': 'C1A2B3C4D5E6',
+            'assignment_active': True,
             'rms': 2.5,     # 2.5 m/s² (running)
             'freq': 50.0,   # 50.0 Hz
             'battery_voltage': 2.85
         }
     ]
-    packet = create_test_packet(aggregator_id=1, machines=machines)
-    send_to_server(packet)
+    send_to_server(create_test_packet(aggregator_id=1, sensors=sensors))
 
 
 def test_multiple_machines():
     """Test sending data for multiple machines"""
     print("\n=== Testing Multiple Machines ===")
-    machines = [
+    sensors = [
         {
-            'type': 1,      # Washer
-            'id': 1,
+            'sensor_id': 'C1A2B3C4D5E6',
             'rms': 3.2,     # Running
             'freq': 48.5,
             'battery_voltage': 2.90
         },
         {
-            'type': 2,      # Dryer
-            'id': 2,
+            'sensor_id': 'C1A2B3C4D5E7',
             'rms': 0.5,     # Idle/Free
             'freq': 0.0,
             'battery_voltage': 2.75
         },
         {
-            'type': 1,      # Washer
-            'id': 3,
+            'sensor_id': 'C1A2B3C4D5E8',
             'rms': 2.8,     # Running
             'freq': 51.2,
             'battery_voltage': 2.60
         }
     ]
-    packet = create_test_packet(aggregator_id=1, machines=machines)
-    send_to_server(packet)
+    send_to_server(create_test_packet(aggregator_id=1, sensors=sensors))
 
 
 def test_cycle_simulation():
@@ -127,32 +126,32 @@ def test_cycle_simulation():
     
     # Machine starts idle
     print("\n1. Machine is FREE (idle)")
-    machines = [{'type': 1, 'id': 1, 'rms': 0.3, 'freq': 0.0, 'battery_voltage': 2.95}]
-    send_to_server(create_test_packet(1, machines))
+    sensors = [{'sensor_id': 'C1A2B3C4D5E6', 'rms': 0.3, 'freq': 0.0, 'battery_voltage': 2.95}]
+    send_to_server(create_test_packet(1, sensors))
     time.sleep(2)
     
     # Machine starts running
     print("\n2. Machine starts RUNNING")
-    machines = [{'type': 1, 'id': 1, 'rms': 2.5, 'freq': 50.0, 'battery_voltage': 2.94}]
-    send_to_server(create_test_packet(1, machines))
+    sensors = [{'sensor_id': 'C1A2B3C4D5E6', 'rms': 2.5, 'freq': 50.0, 'battery_voltage': 2.94}]
+    send_to_server(create_test_packet(1, sensors))
     time.sleep(2)
     
     # Machine still running (simulate updates during cycle)
     print("\n3. Machine still RUNNING (mid-cycle)")
-    machines = [{'type': 1, 'id': 1, 'rms': 3.0, 'freq': 49.5, 'battery_voltage': 2.93}]
-    send_to_server(create_test_packet(1, machines))
+    sensors = [{'sensor_id': 'C1A2B3C4D5E6', 'rms': 3.0, 'freq': 49.5, 'battery_voltage': 2.93}]
+    send_to_server(create_test_packet(1, sensors))
     time.sleep(2)
     
     # Machine cycle done (low vibration but not yet opened)
     print("\n4. Machine DONE (cycle finished)")
-    machines = [{'type': 1, 'id': 1, 'rms': 0.5, 'freq': 0.0, 'battery_voltage': 2.92}]
-    send_to_server(create_test_packet(1, machines))
+    sensors = [{'sensor_id': 'C1A2B3C4D5E6', 'rms': 0.5, 'freq': 0.0, 'battery_voltage': 2.92}]
+    send_to_server(create_test_packet(1, sensors))
     time.sleep(2)
     
     # Machine door opened and becomes free
     print("\n5. Machine FREE again (door opened)")
-    machines = [{'type': 1, 'id': 1, 'rms': 0.2, 'freq': 0.0, 'battery_voltage': 2.92}]
-    send_to_server(create_test_packet(1, machines))
+    sensors = [{'sensor_id': 'C1A2B3C4D5E6', 'rms': 0.2, 'freq': 0.0, 'battery_voltage': 2.92}]
+    send_to_server(create_test_packet(1, sensors))
 
 
 if __name__ == '__main__':
@@ -168,7 +167,7 @@ if __name__ == '__main__':
         if test_type == 'heartbeat':
             test_heartbeat()
         elif test_type == 'single':
-            test_single_machine()
+            test_single_sensor()
         elif test_type == 'multiple':
             test_multiple_machines()
         elif test_type == 'cycle':
@@ -180,7 +179,7 @@ if __name__ == '__main__':
         # Run all tests
         test_heartbeat()
         time.sleep(1)
-        test_single_machine()
+        test_single_sensor()
         time.sleep(1)
         test_multiple_machines()
         time.sleep(1)

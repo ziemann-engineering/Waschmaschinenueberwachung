@@ -25,6 +25,7 @@
 //#include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/adc.h>
+#include <zephyr/drivers/hwinfo.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
@@ -40,14 +41,19 @@
 /* Sensor data structure - matches CircuitPython format */
 struct sensor_data {
     uint8_t protocol_ver;   /* Protocol version */
-    uint8_t machine_type;   /* Machine type identifier */
-    uint8_t machine_id;     /* Unique machine ID */
+    uint8_t flags;          /* Protocol flags */
     uint16_t rms_value;     /* RMS × 1000 (little-endian) */
     uint16_t frequency;     /* Spare (currently unused) */
     uint8_t battery_voltage; /* 1.00 V + value × 10 mV */
 } __packed;
 
 static struct sensor_data current_sensor_data = {0};
+
+#define SENSOR_PROTOCOL_VERSION 3
+#define SENSOR_FLAG_ASSIGNMENT_ACTIVE BIT(0)
+#define ASSIGNMENT_HOLD_MS 5000
+#define ASSIGNMENT_WINDOW_MS 60000
+#define BUTTON_POLL_MS 100
 
 /* LIS2DH accelerometer device */
 static const struct device *lis2dh_sensor = DEVICE_DT_GET(DT_NODELABEL(lis2dh));
@@ -88,6 +94,10 @@ static const struct bt_le_adv_param adv_param = {
 static const struct gpio_dt_spec led_red = GPIO_DT_SPEC_GET(DT_NODELABEL(led_red), gpios);
 static const struct gpio_dt_spec led_green = GPIO_DT_SPEC_GET(DT_NODELABEL(led_green), gpios);
 static const struct gpio_dt_spec led_blue = GPIO_DT_SPEC_GET(DT_NODELABEL(led_blue), gpios);
+static const struct gpio_dt_spec assignment_button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
+static int64_t button_pressed_at;
+static int64_t assignment_active_until;
+static bool button_was_pressed;
 
 /* LED blink function */
 static void blink_led(const struct gpio_dt_spec *led, int times, int delay_ms)
@@ -136,9 +146,9 @@ static uint8_t read_battery_voltage(void)
      * V_DD = (ADC_value / 4096) * 0.9V * 4
      * V_DD = ADC_value * 3.6 / 4096
      * Then multiply by 2 for some undocumented reason.
-     * Also add 0.05V offset to match observed values.
+     * Also add 0.025V offset to match observed values.
      */
-    voltage = (double)adc_value * 3.6 / 4096.0 * 2 + 0.05;
+    voltage = (double)adc_value * 3.6 / 4096.0 * 2 + 0.025;
     millivolts = (int32_t)(voltage * 1000.0 + 0.5);
     millivolts = CLAMP(millivolts, 1000, 3550);
 
@@ -246,6 +256,36 @@ static void update_advertising_data(void)
     bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
 }
 
+static void assignment_button_poll(struct k_timer *timer_id)
+{
+    int64_t now;
+    bool is_pressed;
+
+    ARG_UNUSED(timer_id);
+
+    now = k_uptime_get();
+    is_pressed = gpio_pin_get_dt(&assignment_button) > 0;
+
+    if (is_pressed && !button_was_pressed) {
+        button_pressed_at = now;
+    } else if (!is_pressed && button_was_pressed) {
+        if (now - button_pressed_at >= ASSIGNMENT_HOLD_MS) {
+            assignment_active_until = now + ASSIGNMENT_WINDOW_MS;
+            current_sensor_data.flags |= SENSOR_FLAG_ASSIGNMENT_ACTIVE;
+            update_advertising_data();
+            blink_led(&led_green, 3, 80);
+        }
+    }
+
+    button_was_pressed = is_pressed;
+
+    if ((current_sensor_data.flags & SENSOR_FLAG_ASSIGNMENT_ACTIVE) &&
+        now >= assignment_active_until) {
+        current_sensor_data.flags &= ~SENSOR_FLAG_ASSIGNMENT_ACTIVE;
+        update_advertising_data();
+    }
+}
+
 /* Work item for periodic sensor reading */
 static void sensor_work_handler(struct k_work *work);
 K_WORK_DEFINE(sensor_work, sensor_work_handler);
@@ -302,6 +342,25 @@ static void sensor_work_handler(struct k_work *work)
 
 /* Define the timer */
 K_TIMER_DEFINE(sensor_timer, sensor_timer_callback, NULL);
+K_TIMER_DEFINE(assignment_button_timer, assignment_button_poll, NULL);
+
+static int configure_static_ble_identity(void)
+{
+    uint8_t device_id[8];
+    bt_addr_le_t address = { .type = BT_ADDR_LE_RANDOM };
+    ssize_t device_id_length;
+
+    device_id_length = hwinfo_get_device_id(device_id, sizeof(device_id));
+    if (device_id_length < 6) {
+        return -EIO;
+    }
+
+    memcpy(address.a.val, device_id, sizeof(address.a.val));
+    address.a.val[5] &= 0x3f;
+    address.a.val[5] |= 0xc0;
+
+    return bt_id_reset(BT_ID_DEFAULT, &address, NULL);
+}
 
 static void bt_ready(int err)
 {
@@ -317,12 +376,12 @@ static void bt_ready(int err)
     printk("Bluetooth initialized\n");
 
     /* Set up sensor data with defaults */
-    current_sensor_data.protocol_ver = 2;
-    current_sensor_data.machine_type = 0;
-    current_sensor_data.machine_id = 99;
+    current_sensor_data.protocol_ver = SENSOR_PROTOCOL_VERSION;
+    current_sensor_data.flags = 0;
     current_sensor_data.rms_value = 0;
     current_sensor_data.frequency = 0;
     current_sensor_data.battery_voltage = read_battery_voltage();
+    update_advertising_data();
 
     /* Read accelerometer once on startup */
     k_work_submit(&sensor_work);
@@ -339,20 +398,36 @@ static void bt_ready(int err)
     bt_addr_le_to_str(&addr, addr_s, sizeof(addr_s));
 
     printk("Beacon started, advertising as %s\n", addr_s);
-        printk("Sensor data: proto=%d, type=%d, id=%d, rms=%d, battery_code=%d\n",
-           current_sensor_data.protocol_ver, current_sensor_data.machine_type,
-           current_sensor_data.machine_id, current_sensor_data.rms_value,
+          printk("Sensor data: proto=%d, flags=%d, rms=%d, battery_code=%d\n",
+              current_sensor_data.protocol_ver, current_sensor_data.flags,
+              current_sensor_data.rms_value,
             current_sensor_data.battery_voltage);
 
 
     
     /* Start periodic sensor reading (10 seconds = 10000 ms) */
     k_timer_start(&sensor_timer, K_MSEC(10000), K_MSEC(10000));
+    k_timer_start(&assignment_button_timer, K_MSEC(BUTTON_POLL_MS),
+                  K_MSEC(BUTTON_POLL_MS));
 }
 
 int main(void)
 {
     uint32_t ret;
+
+    if (!device_is_ready(assignment_button.port)) {
+        return -ENODEV;
+    }
+
+    ret = gpio_pin_configure_dt(&assignment_button, GPIO_INPUT);
+    if (ret < 0) {
+        return ret;
+    }
+
+    ret = configure_static_ble_identity();
+    if (ret < 0) {
+        return ret;
+    }
 
     /* Configure RAM power control for lower idle power
      * In System ON mode, use CONTROL register to manage RAM sections

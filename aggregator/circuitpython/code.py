@@ -61,9 +61,9 @@ CONFIG = load_config()
 
 class SensorReading:
     """Stores a reading from a sensor node"""
-    def __init__(self, machine_type, machine_id, rms_x1000, freq_x10, battery_voltage, rssi):
-        self.machine_type = machine_type  # 1=washer, 2=dryer
-        self.machine_id = machine_id
+    def __init__(self, sensor_id, assignment_active, rms_x1000, freq_x10, battery_voltage, rssi):
+        self.sensor_id = sensor_id
+        self.assignment_active = assignment_active
         self.rms_x1000 = rms_x1000
         self.freq_x10 = freq_x10
         self.battery_voltage = battery_voltage
@@ -71,9 +71,8 @@ class SensorReading:
         self.timestamp = time.monotonic()
     
     def __repr__(self):
-        type_str = "W" if self.machine_type == 1 else "T"
         voltage = 1.0 + self.battery_voltage / 100
-        return f"[{type_str}] Machine {self.machine_id}: RMS={self.rms_x1000/1000:.3f}, Freq={self.freq_x10/10:.1f}Hz, Batt={voltage:.2f}V, RSSI={self.rssi}dBm"
+        return f"Sensor {self.sensor_id.hex().upper()}: RMS={self.rms_x1000/1000:.3f}, Freq={self.freq_x10/10:.1f}Hz, Batt={voltage:.2f}V, RSSI={self.rssi}dBm"
 
 # Cache for received sensor data
 sensor_cache = {}
@@ -143,8 +142,7 @@ def scan_for_sensors(ble, duration_sec):
             
             reading = parse_mfr_data(advertisement, TARGET_ID)
             if reading:
-                key = (reading.machine_type, reading.machine_id)
-                found_sensors[key] = reading
+                found_sensors[reading.sensor_id] = reading
            
     finally:
         ble.stop_scan()
@@ -152,7 +150,7 @@ def scan_for_sensors(ble, duration_sec):
             print(f"Scan complete. Found {len(found_sensors)} unique sensors ({scan_count} packets).")
             for reading in found_sensors.values():
                 voltage = 1.0 + reading.battery_voltage / 100
-                print(f"Machine {reading.machine_id}: RMS {reading.rms_x1000 / 1000:.3f} | Batt {voltage:.2f}V | RSSI {reading.rssi}dBm")
+                print(f"Sensor {reading.sensor_id.hex().upper()}: RMS {reading.rms_x1000 / 1000:.3f} | Batt {voltage:.2f}V | RSSI {reading.rssi}dBm")
     
     return found_sensors
 
@@ -164,17 +162,17 @@ def build_lora_packet(readings):
     """
     Build LoRa packet from sensor readings.
     
-    Packet format (Protocol v3):
+    Packet format (Protocol v4):
     - 4 bytes: Waveshare address header (0x00 0x00 for broadcast + 2 channel bytes)
     - Byte 0: Aggregator ID
     - Byte 1: Machine count (N)
-    - N × 8 bytes: Machine data
-      - Byte 0: Machine type (1=washer, 2=dryer)
-      - Byte 1: Machine ID
-      - Bytes 2-3: RMS × 1000 (uint16, little-endian)
-      - Bytes 4-5: Freq × 10 (uint16, little-endian)  
-    - Byte 6: Battery voltage (1.00 V + value × 10 mV)
-      - Byte 7: RSSI (int8, signed dBm)
+        - N × 13 bytes: Sensor data
+            - Bytes 0-5: Static BLE address
+            - Byte 6: Flags (bit 0 = assignment active)
+            - Bytes 7-8: RMS × 1000 (uint16, little-endian)
+            - Bytes 9-10: Freq × 10 (uint16, little-endian)
+            - Byte 11: Battery voltage (1.00 V + value × 10 mV)
+            - Byte 12: RSSI (int8, signed dBm)
     
     Returns bytes
     """
@@ -189,9 +187,9 @@ def build_lora_packet(readings):
     packet.append(len(readings))
     
     # Add each machine's data
-    for (machine_type, machine_id), reading in readings.items():
-        packet.append(reading.machine_type)
-        packet.append(reading.machine_id)
+    for reading in readings.values():
+        packet.extend(reading.sensor_id)
+        packet.append(0x01 if reading.assignment_active else 0x00)
         packet.extend(struct.pack('<H', reading.rms_x1000))
         packet.extend(struct.pack('<H', reading.freq_x10))
         packet.append(reading.battery_voltage)
@@ -335,7 +333,7 @@ def main():
 def parse_mfr_data(advertisement, target_company_id=0xFFFF):
     """
     Parse the manufacturer data from a BLE advertisement.
-    Supports both v1 (6 bytes) and v2 (8 bytes) packets.
+    Parses the v3 sensor packet with a transient assignment flag.
     """
     mfr = getattr(advertisement, "manufacturer_data", None)
     if not mfr:
@@ -360,20 +358,20 @@ def parse_mfr_data(advertisement, target_company_id=0xFFFF):
         if protocol_version != CONFIG.get("protocol_version", 2):
             return None
 
-        machine_type     = data[1]
-        machine_id       = data[2]
-
-        # Handle v2 packets (8 bytes - no mean)
-        if len(data) == 8:
-            rms_x1000 = data[3] | (data[4] << 8)
-            freq_x10 = data[5] | (data[6] << 8)
-            battery_voltage = data[7]
+        if len(data) == 7:
+            sensor_id = bytes.fromhex(str(advertisement.address).replace(':', ''))
+            if len(sensor_id) != 6:
+                return None
+            assignment_active = bool(data[1] & 0x01)
+            rms_x1000 = data[2] | (data[3] << 8)
+            freq_x10 = data[4] | (data[5] << 8)
+            battery_voltage = data[6]
         else:
-            return None  # Too short
+            return None
 
         reading = SensorReading(
-            machine_type=machine_type,
-            machine_id=machine_id,
+            sensor_id=sensor_id,
+            assignment_active=assignment_active,
             rms_x1000=rms_x1000,
             freq_x10=freq_x10,
             battery_voltage=battery_voltage,

@@ -2,6 +2,26 @@
 	zephyr,user {
 		io-channels = <&adc 0>;
 	};
+
+	soc {
+		/delete-node/ memory@20000000;
+
+		nrf_kmu_reserved_push_area: memory@20000000 {
+			compatible = "zephyr,memory-region", "mmio-sram";
+			reg = <0x20000000 0x60>;
+			zephyr,memory-region = "nrf_kmu_reserved_push_area";
+			status = "okay";
+		};
+
+		cpuapp_sram: memory@20000060 {
+			compatible = "mmio-sram";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			reg = <0x20000060 0x3ffa0>;
+			ranges = <0x0 0x20000060 0x3ffa0>;
+			status = "okay";
+		};
+	};
 };
 
 &uart20 {

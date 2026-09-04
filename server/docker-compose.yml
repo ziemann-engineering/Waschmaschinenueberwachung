@@ -1,18 +1,17 @@
-version: '3.8'
-
 services:
   app:
     build: .
-    container_name: washing-monitor-app
+    container_name: washing-machine-status
     restart: unless-stopped
     volumes:
-      - ./server/config.json:/app/server/config.json:ro
       - ./data:/app/data
     environment:
       - TZ=Europe/Zurich
       - WEB_HOST=0.0.0.0
       - WEB_PORT=8080
       - DATABASE_PATH=/app/data/washing_machines.db
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
     networks:
       edge:
         aliases:

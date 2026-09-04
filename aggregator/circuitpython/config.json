@@ -4,7 +4,7 @@
     "ble_scan_duration_sec": 10,
     "lora_tx_interval_sec": 10,
     "company_id": 65535,
-    "protocol_version": 2,
+    "protocol_version": 3,
     "lora": {
         "frequency": 868,
         "bandwidth": 125.0,

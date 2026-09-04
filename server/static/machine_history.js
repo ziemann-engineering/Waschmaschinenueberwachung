@@ -21,7 +21,7 @@
 		});
 	}
 
-	function renderPlot(svg, readings, field, fixedMaximum = null) {
+	function renderPlot(svg, readings, field, fixedRange = null) {
 		const width = Math.max(Math.round(svg.getBoundingClientRect().width), 360);
 		const height = width < 600 ? 220 : 280;
 		const margin = { top: 18, right: 22, bottom: 42, left: 58 };
@@ -46,11 +46,13 @@
 		const timeSpan = Math.max(lastTime - firstTime, 1);
 		const values = readings.map(reading => Number(reading[field]));
 		const highestValue = values.reduce((highest, value) => Math.max(highest, value), 0);
-		const maximum = fixedMaximum ?? Math.max(highestValue * 1.1, 0.1);
+		const minimum = fixedRange?.minimum ?? 0;
+		const maximum = fixedRange?.maximum ?? Math.max(highestValue * 1.1, 0.1);
+		const valueSpan = maximum - minimum;
 
 		for (let index = 0; index <= 4; index += 1) {
 			const y = margin.top + (plotHeight * index / 4);
-			const value = maximum * (1 - index / 4);
+			const value = minimum + valueSpan * (1 - index / 4);
 			svg.appendChild(svgElement('line', {
 				x1: margin.left,
 				y1: y,
@@ -68,21 +70,33 @@
 
 		const points = readings.map(reading => {
 			const x = margin.left + ((reading.timestamp - firstTime) / timeSpan) * plotWidth;
-			const y = margin.top + (1 - Number(reading[field]) / maximum) * plotHeight;
+			const ratio = (Number(reading[field]) - minimum) / valueSpan;
+			const y = margin.top + (1 - ratio) * plotHeight;
 			return `${x.toFixed(1)},${y.toFixed(1)}`;
 		}).join(' ');
 
-		svg.appendChild(svgElement('polyline', { points, class: `plot-line plot-line-${field}` }));
+		const stroke = field === 'battery_voltage' ? '#16836f' : '#d94841';
+		svg.appendChild(svgElement('polyline', {
+			points,
+			class: `plot-line plot-line-${field}`,
+			fill: 'none',
+			stroke,
+			'stroke-width': 2.5,
+			'stroke-linecap': 'round',
+			'stroke-linejoin': 'round'
+		}));
 
 		if (readings.length <= 120) {
 			readings.forEach(reading => {
 				const x = margin.left + ((reading.timestamp - firstTime) / timeSpan) * plotWidth;
-				const y = margin.top + (1 - Number(reading[field]) / maximum) * plotHeight;
+				const ratio = (Number(reading[field]) - minimum) / valueSpan;
+				const y = margin.top + (1 - ratio) * plotHeight;
 				svg.appendChild(svgElement('circle', {
 					cx: x,
 					cy: y,
 					r: 2.5,
-					class: `plot-point plot-point-${field}`
+					class: `plot-point plot-point-${field}`,
+					fill: stroke
 				}));
 			});
 		}
@@ -142,7 +156,10 @@
 			document.getElementById('latest-battery').textContent = latest ? `${Number(latest.battery_voltage).toFixed(2)} V` : '–';
 
 			renderPlot(document.getElementById('rms-plot'), chronological, 'rms');
-			renderPlot(document.getElementById('battery-plot'), chronological, 'battery_voltage', 3.55);
+			renderPlot(document.getElementById('battery-plot'), chronological, 'battery_voltage', {
+				minimum: 1.0,
+				maximum: 3.55
+			});
 			renderLog(newestFirst);
 			error.hidden = true;
 		} catch (exception) {
@@ -164,5 +181,5 @@
 	});
 
 	loadHistory();
-	window.setInterval(loadHistory, 30000);
+	window.setInterval(loadHistory, 5000);
 })();

@@ -1,16 +1,14 @@
 FROM python:3.11-slim
 
-WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt gunicorn
 
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt gunicorn
+COPY code/ /app/code/
+COPY static/ /app/code/static/
+COPY templates/ /app/code/templates/
 
-# Copy application files directly to /app
-COPY server/ ./
-
-# Expose port
 EXPOSE 8080
 
-# Run with gunicorn (1 worker to share in-memory state)
-CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8080", "--timeout", "120", "server.main:app"]
+WORKDIR /app/code
+
+CMD ["python", "main.py", "--config", "../data/config.json"]
