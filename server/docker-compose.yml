@@ -10,9 +10,8 @@ services:
       - WEB_HOST=0.0.0.0
       - WEB_PORT=8080
       - DATABASE_PATH=/app/data/washing_machines.db
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
-    env_file: .env
+    env_file:
+      - ./data/.env
     networks:
       edge:
         aliases:

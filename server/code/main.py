@@ -48,6 +48,7 @@ state_machine: StateMachine = None
 database: Database = None
 notification_manager: NotificationManager = None
 config: dict = None
+last_receiver_contact: float = 0
 
 
 def admin_authenticated() -> bool:
@@ -71,11 +72,16 @@ def format_timestamp(timestamp):
     return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp)) if timestamp else '-'
 
 
+def is_receiver_connected() -> bool:
+    return (time.time() - last_receiver_contact) < 180
+
+
 @app.route('/')
 def index():
     """Main page - all aggregators"""
     status = state_machine.get_all_status(database.get_live_aggregators())
-    return render_template('index.html', aggregators=status, config=config)
+    return render_template('index.html', aggregators=status, config=config,
+                           receiver_connected=is_receiver_connected())
 
 
 @app.route('/info')
@@ -225,7 +231,10 @@ def api_unsubscribe(subscription_id: str):
 @app.route('/api/lora-data', methods=['POST'])
 def api_lora_data():
     """HTTP endpoint to receive LoRa data from WiFi bridge"""
+    global last_receiver_contact
+
     try:
+        last_receiver_contact = time.time()
         data = request.json
 
         if data and data.get('keepalive'):
