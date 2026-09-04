@@ -33,6 +33,36 @@ else
     exit 1
 fi
 
+if ! command -v git >/dev/null 2>&1; then
+    echo "Error: Git is not installed or not on PATH." >&2
+    exit 1
+fi
+
+if ! command -v rsync >/dev/null 2>&1; then
+    echo "Error: rsync is not installed or not on PATH." >&2
+    exit 1
+fi
+
+repository_url="https://github.com/ziemann-engineering/Waschmaschinenueberwachung.git"
+
+echo "Pulling server updates from GitHub..."
+source_dir="$(mktemp -d)"
+cleanup_source() {
+    rm -rf -- "$source_dir"
+}
+trap cleanup_source EXIT
+
+echo "Fetching server updates from GitHub..."
+git clone --depth 1 --filter=blob:none --sparse \
+    "$repository_url" "$source_dir"
+git -C "$source_dir" sparse-checkout set server
+
+echo "Synchronizing server source..."
+rsync -a --delete \
+    --exclude='data/' \
+    --exclude='backups/' \
+    --exclude='.update.lock' \
+    "$source_dir/server/" "$deploy_dir/"
 required_files=(Dockerfile requirements.txt data/config.json)
 for required_file in "${required_files[@]}"; do
     if [[ ! -f "$required_file" ]]; then
