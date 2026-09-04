@@ -2,8 +2,12 @@
   "machine_id": 1,
   "machine_type": 1,
   "wake_interval_sec": 180,
+  "advertise_interval_sec": 1,
   "sample_duration_sec": 0.2,
   "sample_rate_hz": 100,
   "company_id": 65535,
-  "protocol_version": 2
+  "protocol_version": 1,
+  "tx_power": 0,
+  "test_mode": false,
+  "print_debug": false
 }

@@ -213,16 +213,16 @@ def api_lora_data():
             machine_id = packet_data[offset+1]
             rms_x100 = struct.unpack('<H', packet_data[offset+2:offset+4])[0]
             freq_x10 = struct.unpack('<H', packet_data[offset+4:offset+6])[0]
-            battery = packet_data[offset+6]
+            battery_code = packet_data[offset+6]
             
-            from lora_receiver import MachineReading
+            from lora_receiver import MachineReading, decode_battery_voltage
             reading = MachineReading(
                 aggregator_id=aggregator_id,
                 machine_type=machine_type,
                 machine_id=machine_id,
                 rms=rms_x100 / 100.0,
                 dominant_freq=freq_x10 / 10.0,
-                battery_percent=battery,
+                battery_voltage=decode_battery_voltage(battery_code),
                 timestamp=timestamp
             )
             
@@ -234,7 +234,7 @@ def api_lora_data():
                 f"[{type_str}] Machine {aggregator_id}/{machine_id}: "
                 f"RMS={reading.rms:.2f} m/s², "
                 f"Freq={reading.dominant_freq:.1f} Hz, "
-                f"Batt={reading.battery_percent}%"
+                f"Batt={reading.battery_voltage:.2f} V"
             )
             
             offset += 7

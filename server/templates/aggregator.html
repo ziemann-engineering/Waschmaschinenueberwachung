@@ -79,6 +79,7 @@
                         </div>
                         {% endif %}
                     </div>
+                    <a class="machine-history-link" href="{{ url_for('machine_history_page', aggregator_id=aggregator.id, machine_id=machine.machine_id) }}">Messverlauf anzeigen</a>
                 </div>
             </div>
             {% endfor %}
@@ -124,6 +125,7 @@
                         </div>
                         {% endif %}
                     </div>
+                    <a class="machine-history-link" href="{{ url_for('machine_history_page', aggregator_id=aggregator.id, machine_id=machine.machine_id) }}">Messverlauf anzeigen</a>
                 </div>
             </div>
             {% endfor %}

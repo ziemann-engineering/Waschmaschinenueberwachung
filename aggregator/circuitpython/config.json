@@ -1,8 +1,8 @@
 {
     "aggregator_name": "D2",
     "aggregator_id": 2,
-    "ble_scan_duration_sec": 5,
-    "lora_tx_interval_sec": 5,
+    "ble_scan_duration_sec": 10,
+    "lora_tx_interval_sec": 10,
     "company_id": 65535,
     "protocol_version": 2,
     "lora": {

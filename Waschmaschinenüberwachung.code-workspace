@@ -4,9 +4,19 @@
 			"path": "."
 		},
 		{
+			"name": "H:",
+			"path": "H:/"
+		},
+		{
 			"name": "SSH FS - rpi5",
-			"uri": "ssh://rpi5/home/thomas/wms"
+			"uri": "ssh://rpi5/home/thomas"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"circuitpythonsync.drivepath": "H:",
+		"nrf-connect.applications": [
+			"${workspaceFolder}\\sensor_node\\beacon_NRF54DK",
+			"${workspaceFolder}\\sensor_node\\beacon_holyiot"
+		]
+	}
 }

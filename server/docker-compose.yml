@@ -14,25 +14,11 @@ services:
       - WEB_PORT=8080
       - DATABASE_PATH=/app/data/washing_machines.db
     networks:
-      - washing-network
-    # Uncomment if you need serial port access (for LoRa receiver):
-    # devices:
-    #   - /dev/ttyUSB0:/dev/ttyUSB0
-    # privileged: true
-
-  nginx:
-    image: nginx:alpine
-    container_name: washing-monitor-nginx
-    restart: unless-stopped
-    ports:
-      - "8000:80"  # Change 8000 to your preferred external port
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - app
-    networks:
-      - washing-network
+      edge:
+        aliases:
+          - wms-app
 
 networks:
-  washing-network:
-    driver: bridge
+  edge:
+    external: true
+    name: proxy

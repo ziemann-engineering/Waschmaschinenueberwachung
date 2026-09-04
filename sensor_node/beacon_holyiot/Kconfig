@@ -1,0 +1,18 @@
+menu "Washing machine beacon"
+
+config BEACON_POWER_TEST_NO_BT
+	bool "Disable Bluetooth for idle-current measurement"
+	help
+	  Put the LIS2DH into power-down mode and skip Bluetooth initialization.
+	  This isolates the MCU, board, and powered-down sensor idle-current floor.
+
+config BEACON_POWER_TEST_SYSTEM_OFF
+	bool "Enter System OFF for idle-current measurement"
+	depends on BEACON_POWER_TEST_NO_BT
+	help
+	  Enter System OFF after preparing the no-Bluetooth power test. Reset or
+	  cycle power to run the startup indication and enter System OFF again.
+
+endmenu
+
+source "Kconfig.zephyr"

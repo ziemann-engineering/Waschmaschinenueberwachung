@@ -6,14 +6,22 @@ import requests
 import struct
 import time
 
+
+def encode_battery_voltage(voltage):
+    """Encode 1.00-3.55 V as a byte in 10 mV steps."""
+    if not 1.0 <= voltage <= 3.55:
+        raise ValueError("battery voltage must be between 1.00 V and 3.55 V")
+    return round((voltage - 1.0) * 100)
+
+
 def create_test_packet(aggregator_id=1, machines=None):
     """
     Create a test LoRa packet
     
     Args:
         aggregator_id: Aggregator ID (1-255)
-        machines: List of dicts with keys: type, id, rms, freq, battery
-                  Example: [{'type': 1, 'id': 1, 'rms': 2.5, 'freq': 50.0, 'battery': 85}]
+        machines: List of dicts with keys: type, id, rms, freq, battery_voltage
+              Example: [{'type': 1, 'id': 1, 'rms': 2.5, 'freq': 50.0, 'battery_voltage': 2.85}]
     """
     if machines is None:
         # Create heartbeat packet (0 machines)
@@ -27,7 +35,7 @@ def create_test_packet(aggregator_id=1, machines=None):
             machine_id = machine['id']
             rms_x100 = int(machine['rms'] * 100)
             freq_x10 = int(machine['freq'] * 10)
-            battery = machine['battery']
+            battery = encode_battery_voltage(machine['battery_voltage'])
             
             # Pack machine data (7 bytes per machine)
             packet += bytes([machine_type, machine_id])
@@ -76,7 +84,7 @@ def test_single_machine():
             'id': 1,        # Machine ID 1
             'rms': 2.5,     # 2.5 m/s² (running)
             'freq': 50.0,   # 50.0 Hz
-            'battery': 85   # 85%
+            'battery_voltage': 2.85
         }
     ]
     packet = create_test_packet(aggregator_id=1, machines=machines)
@@ -92,21 +100,21 @@ def test_multiple_machines():
             'id': 1,
             'rms': 3.2,     # Running
             'freq': 48.5,
-            'battery': 90
+            'battery_voltage': 2.90
         },
         {
             'type': 2,      # Dryer
             'id': 2,
             'rms': 0.5,     # Idle/Free
             'freq': 0.0,
-            'battery': 75
+            'battery_voltage': 2.75
         },
         {
             'type': 1,      # Washer
             'id': 3,
             'rms': 2.8,     # Running
             'freq': 51.2,
-            'battery': 60
+            'battery_voltage': 2.60
         }
     ]
     packet = create_test_packet(aggregator_id=1, machines=machines)
@@ -119,31 +127,31 @@ def test_cycle_simulation():
     
     # Machine starts idle
     print("\n1. Machine is FREE (idle)")
-    machines = [{'type': 1, 'id': 1, 'rms': 0.3, 'freq': 0.0, 'battery': 95}]
+    machines = [{'type': 1, 'id': 1, 'rms': 0.3, 'freq': 0.0, 'battery_voltage': 2.95}]
     send_to_server(create_test_packet(1, machines))
     time.sleep(2)
     
     # Machine starts running
     print("\n2. Machine starts RUNNING")
-    machines = [{'type': 1, 'id': 1, 'rms': 2.5, 'freq': 50.0, 'battery': 94}]
+    machines = [{'type': 1, 'id': 1, 'rms': 2.5, 'freq': 50.0, 'battery_voltage': 2.94}]
     send_to_server(create_test_packet(1, machines))
     time.sleep(2)
     
     # Machine still running (simulate updates during cycle)
     print("\n3. Machine still RUNNING (mid-cycle)")
-    machines = [{'type': 1, 'id': 1, 'rms': 3.0, 'freq': 49.5, 'battery': 93}]
+    machines = [{'type': 1, 'id': 1, 'rms': 3.0, 'freq': 49.5, 'battery_voltage': 2.93}]
     send_to_server(create_test_packet(1, machines))
     time.sleep(2)
     
     # Machine cycle done (low vibration but not yet opened)
     print("\n4. Machine DONE (cycle finished)")
-    machines = [{'type': 1, 'id': 1, 'rms': 0.5, 'freq': 0.0, 'battery': 92}]
+    machines = [{'type': 1, 'id': 1, 'rms': 0.5, 'freq': 0.0, 'battery_voltage': 2.92}]
     send_to_server(create_test_packet(1, machines))
     time.sleep(2)
     
     # Machine door opened and becomes free
     print("\n5. Machine FREE again (door opened)")
-    machines = [{'type': 1, 'id': 1, 'rms': 0.2, 'freq': 0.0, 'battery': 92}]
+    machines = [{'type': 1, 'id': 1, 'rms': 0.2, 'freq': 0.0, 'battery_voltage': 2.92}]
     send_to_server(create_test_packet(1, machines))
 
 

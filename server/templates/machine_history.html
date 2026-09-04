@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>{{ machine.name }} - Sensorverlauf</title>
+	<link rel="icon" type="image/png" href="{{ url_for('static', filename='icon.png') }}">
+	<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+	<header>
+		<nav class="nav-bar">
+			<a href="{{ url_for('aggregator_page', name=aggregator_name) }}" class="back-link">← {{ aggregator_name }}</a>
+			<a href="/info" class="info-link">Info</a>
+		</nav>
+		<h1>{{ machine.name }}</h1>
+		<p class="location">Sensor {{ machine.aggregator_id }}/{{ machine.machine_id }} · {{ machine.type_label }}</p>
+		<p class="last-update">Datenstand: <span id="history-update-time">wird geladen</span></p>
+	</header>
+
+	<main class="history-page"
+		  data-history-url="{{ url_for('api_history', aggregator_id=machine.aggregator_id, machine_id=machine.machine_id) }}">
+		<div id="history-error" class="error-banner" hidden></div>
+
+		<section class="history-toolbar" aria-label="Zeitraum">
+			<div class="range-control">
+				<button type="button" data-hours="1">1 h</button>
+				<button type="button" data-hours="6">6 h</button>
+				<button type="button" data-hours="24" class="active" aria-pressed="true">24 h</button>
+				<button type="button" data-hours="168">7 Tage</button>
+			</div>
+			<span id="reading-count" class="reading-count">0 Messungen</span>
+		</section>
+
+		<section class="history-summary" aria-label="Aktueller Sensorstatus">
+			<div>
+				<span>Beschleunigung</span>
+				<strong id="latest-rms">–</strong>
+			</div>
+			<div>
+				<span>Frequenz</span>
+				<strong id="latest-frequency">–</strong>
+			</div>
+			<div>
+				<span>Batterie</span>
+				<strong id="latest-battery">–</strong>
+			</div>
+		</section>
+
+		<section class="plot-section">
+			<div class="plot-heading">
+				<h2>Beschleunigung (RMS)</h2>
+				<span>m/s²</span>
+			</div>
+			<svg id="rms-plot" class="history-plot" role="img" aria-label="Beschleunigung über Zeit"></svg>
+		</section>
+
+		<section class="plot-section">
+			<div class="plot-heading">
+				<h2>Batteriespannung</h2>
+				<span>V</span>
+			</div>
+			<svg id="battery-plot" class="history-plot" role="img" aria-label="Batteriespannung über Zeit"></svg>
+		</section>
+
+		<section class="log-section">
+			<div class="plot-heading">
+				<h2>Empfangene Sensor-Updates</h2>
+				<span>neueste zuerst, max. 250</span>
+			</div>
+			<div class="history-table-wrap">
+				<table class="history-table">
+					<thead>
+						<tr>
+							<th>Zeit</th>
+							<th>RMS</th>
+							<th>Frequenz</th>
+							<th>Batterie</th>
+						</tr>
+					</thead>
+					<tbody id="history-log"></tbody>
+				</table>
+				<p id="history-empty" class="history-empty" hidden>Keine Messungen in diesem Zeitraum.</p>
+			</div>
+		</section>
+	</main>
+
+	<footer>
+		<p>Die Ansicht aktualisiert sich automatisch alle 30 Sekunden.</p>
+	</footer>
+
+	<script src="{{ url_for('static', filename='machine_history.js') }}"></script>
+</body>
+</html>

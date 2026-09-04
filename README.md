@@ -115,11 +115,11 @@ Manufacturer-specific data in BLE advertisement (no connection needed):
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0-1 | Company ID | 0xFFFF (reserved for testing) |
-| 2 | Protocol Version | 0x01 |
+| 2 | Protocol Version | 0x02 |
 | 3 | Machine ID | 1-255 |
 | 4-5 | RMS × 100 | uint16, little-endian (e.g., 150 = 1.50 m/s²) |
 | 6-7 | Dominant Freq × 10 | uint16, little-endian (0 when FFT disabled) |
-| 8 | Battery % | 0-100 |
+| 8 | Battery voltage | `0..255` = `1.00..3.55 V` in 10 mV steps |
 | 9 | Flags | Bit 0: low battery warning |
 
 Total: 10 bytes in manufacturer data
@@ -139,7 +139,7 @@ Machine Data (6 bytes each):
 | 0 | Machine ID | 1-255 |
 | 1-2 | RMS × 100 | uint16, little-endian |
 | 3-4 | Dominant Freq × 10 | uint16, little-endian |
-| 5 | Battery % | 0-100 |
+| 5 | Battery voltage | `0..255` = `1.00..3.55 V` in 10 mV steps |
 
 Max packet: 2 + (20 × 6) = 122 bytes (fits in LoRa payload)
 
