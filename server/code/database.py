@@ -182,6 +182,28 @@ class Database:
             ''')
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_assignments(self) -> List[Dict]:
+        with self._cursor() as cursor:
+            cursor.execute('''
+                SELECT sensor_id, assigned_aggregator_id, machine_type, machine_id
+                FROM sensors
+                WHERE assigned_aggregator_id IS NOT NULL AND machine_type IS NOT NULL
+                    AND machine_id IS NOT NULL
+                ORDER BY assigned_aggregator_id, machine_id
+            ''')
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_live_aggregators(self, offline_minutes: int = 5) -> List[int]:
+        cutoff = time.time() - offline_minutes * 60
+        with self._cursor() as cursor:
+            cursor.execute('''
+                SELECT DISTINCT last_aggregator_id
+                FROM sensors
+                WHERE last_aggregator_id IS NOT NULL AND last_seen_at >= ?
+                ORDER BY last_aggregator_id
+            ''', (cutoff,))
+            return [row['last_aggregator_id'] for row in cursor.fetchall()]
+
     def assign_sensor(self, sensor_id: str, aggregator_id: int, machine_type: int,
                       machine_id: int, timestamp: float):
         with self._cursor() as cursor:

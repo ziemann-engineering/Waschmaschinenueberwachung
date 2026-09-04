@@ -2,6 +2,6 @@ wifi_bridge/circuitpython/config.json
 Sb20c3118df3648a6934d16b152334d1cM.avif
 washing_machines.db
 server/data/
-server/__pycache__/
+**/__pycache__*
 **/build*
-
+server/code/__pycache__/*

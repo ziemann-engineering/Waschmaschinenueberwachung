@@ -12,6 +12,7 @@ services:
       - DATABASE_PATH=/app/data/washing_machines.db
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
+    env_file: .env
     networks:
       edge:
         aliases:

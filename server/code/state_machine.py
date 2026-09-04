@@ -154,37 +154,29 @@ class StateMachine:
         self.config = config
         self.machines: Dict[Tuple[int, int], MachineStatus] = {}
         self.lock = Lock()
-        self._init_machines_from_config()
         
-    def _init_machines_from_config(self):
-        """Initialize machine entries from config"""
-        aggregators = self.config.get("aggregators", {})
-        
-        for agg_id_str, agg_config in aggregators.items():
-            agg_id = int(agg_id_str)
-            machines = agg_config.get("machines", {})
-            
-            for machine_id_str, machine_info in machines.items():
-                machine_id = int(machine_id_str)
-                key = (agg_id, machine_id)
-                
-                # Support both old format (string) and new format (dict with type)
-                if isinstance(machine_info, str):
-                    machine_name = machine_info
-                    machine_type = 1  # default to washer
-                else:
-                    machine_name = machine_info.get("name", f"Machine {machine_id}")
-                    machine_type = machine_info.get("type", 1)
-                
-                self.machines[key] = MachineStatus(
-                    aggregator_id=agg_id,
-                    machine_id=machine_id,
-                    name=machine_name,
-                    machine_type=machine_type,
-                    low_battery_voltage=self.config.get("low_battery_voltage", 2.5)
+    def load_assignments(self, assignments: list[dict]):
+        """Initialize display entries from the server-owned sensor assignments."""
+        with self.lock:
+            for assignment in assignments:
+                aggregator_id = assignment['assigned_aggregator_id']
+                machine_id = assignment['machine_id']
+                machine_type = assignment['machine_type']
+                key = (aggregator_id, machine_id)
+                machine_name = (
+                    f"Waschmaschine {machine_id}"
+                    if machine_type == 1 else f"Tumbler {machine_id}"
                 )
-                
-        logger.info(f"Initialized {len(self.machines)} machines from config")
+                if key not in self.machines:
+                    self.machines[key] = MachineStatus(
+                        aggregator_id=aggregator_id,
+                        machine_id=machine_id,
+                        name=machine_name,
+                        machine_type=machine_type,
+                        low_battery_voltage=self.config.get("low_battery_voltage", 2.5)
+                    )
+
+        logger.info("Initialized %d configured machines from sensor assignments", len(self.machines))
         
     def update(self, reading: MachineReading):
         """Update machine state based on new reading"""
@@ -280,36 +272,19 @@ class StateMachine:
                             
         return state_changes
         
-    def get_all_status(self) -> Dict[str, list]:
+    def get_all_status(self, live_aggregators: Optional[list[int]] = None) -> Dict[str, list]:
         """Get status of all machines grouped by aggregator"""
         result = {}
+        live_aggregator_ids = set(live_aggregators or [])
         
         with self.lock:
+            for aggregator_id in sorted(live_aggregator_ids):
+                result[str(aggregator_id)] = self._new_aggregator_status(aggregator_id)
+
             for (agg_id, _), machine in sorted(self.machines.items()):
                 agg_key = str(agg_id)
                 if agg_key not in result:
-                    agg_config = self.config.get("aggregators", {}).get(agg_key, {})
-                    result[agg_key] = {
-                        "id": agg_id,
-                        "name": agg_config.get("name", f"Aggregator {agg_id}"),
-                        "location": agg_config.get("location", ""),
-                        "machines": [],
-                        "washers": [],      # Separate list for washers
-                        "dryers": [],       # Separate list for dryers
-                        "summary": {
-                            "total": 0,
-                            "free": 0,
-                            "done": 0,
-                            "running": 0,
-                            "offline": 0,
-                            "washers_total": 0,
-                            "washers_free": 0,
-                            "washers_running": 0,
-                            "dryers_total": 0,
-                            "dryers_free": 0,
-                            "dryers_running": 0
-                        }
-                    }
+                    result[agg_key] = self._new_aggregator_status(agg_id)
                 
                 machine_dict = machine.to_dict()
                 result[agg_key]["machines"].append(machine_dict)
@@ -346,19 +321,32 @@ class StateMachine:
                 elif machine.state == MachineState.OFFLINE:
                     result[agg_key]["summary"]["offline"] += 1
             
-            # Determine if aggregator is online (at least one machine has data)
+            # Aggregator presence comes from recently observed sensor packets.
             for agg_key in result:
-                all_unknown_or_offline = all(
-                    m["state"] in ("unknown", "offline") 
-                    for m in result[agg_key]["machines"]
-                )
-                result[agg_key]["online"] = not all_unknown_or_offline
+                result[agg_key]["online"] = result[agg_key]["id"] in live_aggregator_ids
                     
         return result
+
+    @staticmethod
+    def _new_aggregator_status(aggregator_id: int) -> dict:
+        return {
+            "id": aggregator_id,
+            "name": f"Aggregator {aggregator_id}",
+            "location": "",
+            "machines": [],
+            "washers": [],
+            "dryers": [],
+            "summary": {
+                "total": 0, "free": 0, "done": 0, "running": 0, "offline": 0,
+                "washers_total": 0, "washers_free": 0, "washers_running": 0,
+                "dryers_total": 0, "dryers_free": 0, "dryers_running": 0
+            }
+        }
         
-    def get_aggregator_status(self, aggregator_id: int) -> Optional[dict]:
+    def get_aggregator_status(self, aggregator_id: int,
+                              live_aggregators: Optional[list[int]] = None) -> Optional[dict]:
         """Get status for a specific aggregator"""
-        all_status = self.get_all_status()
+        all_status = self.get_all_status(live_aggregators)
         return all_status.get(str(aggregator_id))
         
     def get_machine_status(self, aggregator_id: int, machine_id: int) -> Optional[dict]:

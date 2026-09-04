@@ -19,14 +19,14 @@ fi
 
 cd "$deploy_dir"
 
-if ! command -v docker >/dev/null 2>&1; then
+if ! command -v sudo docker >/dev/null 2>&1; then
     echo "Error: Docker is not installed or not on PATH." >&2
     exit 1
 fi
 
 if docker compose version >/dev/null 2>&1; then
-    compose=(docker compose)
-elif command -v docker-compose >/dev/null 2>&1; then
+    compose=(sudo docker compose)
+elif command -v sudo docker-compose >/dev/null 2>&1; then
     compose=(docker-compose)
 else
     echo "Error: neither 'docker compose' nor 'docker-compose' is available." >&2
@@ -58,10 +58,12 @@ git clone --depth 1 --filter=blob:none --sparse \
 git -C "$source_dir" sparse-checkout set server
 
 echo "Synchronizing server source..."
-rsync -a --delete \
+sudo rsync -rlptD --delete \
     --exclude='data/' \
     --exclude='backups/' \
     --exclude='.update.lock' \
+    --exclude='__pycache__/' \
+    --exclude='*.py[co]' \
     "$source_dir/server/" "$deploy_dir/"
 required_files=(Dockerfile requirements.txt data/config.json)
 for required_file in "${required_files[@]}"; do

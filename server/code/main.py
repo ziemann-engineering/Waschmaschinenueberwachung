@@ -74,7 +74,7 @@ def format_timestamp(timestamp):
 @app.route('/')
 def index():
     """Main page - all aggregators"""
-    status = state_machine.get_all_status()
+    status = state_machine.get_all_status(database.get_live_aggregators())
     return render_template('index.html', aggregators=status, config=config)
 
 
@@ -90,7 +90,6 @@ def admin_sensors_page():
     if authentication_error:
         return authentication_error
     return render_template('admin_sensors.html', sensors=database.get_sensors(),
-                           aggregators=config.get('aggregators', {}),
                            format_timestamp=format_timestamp)
 
 
@@ -107,30 +106,25 @@ def api_assign_sensor(sensor_id: str):
     except (KeyError, TypeError, ValueError):
         abort(400, 'aggregator_id, machine_type, and machine_id are required integers')
 
-    machine = config.get('aggregators', {}).get(str(aggregator_id), {}).get('machines', {}).get(str(machine_id))
-    if not isinstance(machine, dict) or machine.get('type') != machine_type:
-        abort(400, 'The requested machine is not configured for this aggregator')
+    if aggregator_id < 1 or machine_id < 1 or machine_type not in (1, 2):
+        abort(400, 'aggregator_id and machine_id must be positive; machine_type must be 1 or 2')
     try:
         database.assign_sensor(sensor_id, aggregator_id, machine_type, machine_id, time.time())
     except sqlite3.IntegrityError:
         abort(409, 'That machine is already assigned to another sensor')
     except ValueError:
         abort(404, 'Unknown sensor')
+    state_machine.load_assignments([{
+        'assigned_aggregator_id': aggregator_id,
+        'machine_type': machine_type,
+        'machine_id': machine_id,
+    }])
     return jsonify({'success': True})
 
 
-@app.route('/<aggregator_name>/<int:machine_id>')
-def machine_history_page(aggregator_name: str, machine_id: int):
+@app.route('/aggregator/<int:aggregator_id>/machine/<int:machine_id>')
+def machine_history_page(aggregator_id: int, machine_id: int):
     """Machine sensor history page."""
-    aggregator_id = None
-    for agg_id, agg_config in config.get("aggregators", {}).items():
-        if agg_config.get("name") == aggregator_name:
-            aggregator_id = int(agg_id)
-            break
-
-    if aggregator_id is None:
-        abort(404)
-
     machine = state_machine.get_machine_status(aggregator_id, machine_id)
     if not machine:
         abort(404)
@@ -138,24 +132,16 @@ def machine_history_page(aggregator_name: str, machine_id: int):
     return render_template(
         'machine_history.html',
         machine=machine,
-        aggregator_name=aggregator_name
+        aggregator_name=f"Aggregator {aggregator_id}"
     )
 
 
-@app.route('/<name>')
-def aggregator_page(name: str):
-    """Single aggregator page by name (e.g., /G13, /D2)"""
-    # Find aggregator by name
-    aggregator_id = None
-    for agg_id, agg_config in config.get("aggregators", {}).items():
-        if agg_config.get("name") == name:
-            aggregator_id = int(agg_id)
-            break
-    
-    if aggregator_id is None:
-        abort(404)
-    
-    status = state_machine.get_aggregator_status(aggregator_id)
+@app.route('/aggregator/<int:aggregator_id>')
+def aggregator_page(aggregator_id: int):
+    """Single live aggregator page."""
+    status = state_machine.get_aggregator_status(
+        aggregator_id, database.get_live_aggregators()
+    )
     if not status:
         abort(404)
     return render_template('aggregator.html', aggregator=status, config=config)
@@ -164,7 +150,7 @@ def aggregator_page(name: str):
 @app.route('/api/status')
 def api_status():
     """API endpoint - all status data"""
-    return jsonify(state_machine.get_all_status())
+    return jsonify(state_machine.get_all_status(database.get_live_aggregators()))
 
 
 @app.route('/api/health')
@@ -178,7 +164,9 @@ def api_health():
 @app.route('/api/aggregator/<int:aggregator_id>')
 def api_aggregator(aggregator_id: int):
     """API endpoint - single aggregator status"""
-    status = state_machine.get_aggregator_status(aggregator_id)
+    status = state_machine.get_aggregator_status(
+        aggregator_id, database.get_live_aggregators()
+    )
     if not status:
         abort(404)
     return jsonify(status)
@@ -395,8 +383,9 @@ def main():
         free_minutes=config['thresholds']['free_minutes']
     )
     
-    state_machine = StateMachine(thresholds, config)
     database = Database(config.get('database_path', 'washing_machines.db'))
+    state_machine = StateMachine(thresholds, config)
+    state_machine.load_assignments(database.get_assignments())
     notification_manager = NotificationManager(config)
     
     # Start background threads

@@ -20,21 +20,15 @@
             {% for sensor in sensors %}
                 <tr>
                     <td><code>{{ sensor.sensor_id }}</code></td>
-                    <td>{{ aggregators.get(sensor.last_aggregator_id|string, {}).get('name', sensor.last_aggregator_id) }}</td>
+                    <td>{{ sensor.last_aggregator_id or '-' }}</td>
                     <td>{{ format_timestamp(sensor.last_assignment_flag_at) }}</td>
                     <td>
-                        <select class="assignment-aggregator" data-sensor-id="{{ sensor.sensor_id }}">
-                            {% for aggregator_id, aggregator in aggregators.items() %}
-                            <option value="{{ aggregator_id }}" {% if sensor.assigned_aggregator_id == aggregator_id|int %}selected{% endif %}>{{ aggregator.name }}</option>
-                            {% endfor %}
+                        <input class="assignment-aggregator" data-sensor-id="{{ sensor.sensor_id }}" type="number" min="1" required aria-label="Aggregator-ID" value="{{ sensor.assigned_aggregator_id or sensor.last_aggregator_id or '' }}">
+                        <select class="assignment-type" data-sensor-id="{{ sensor.sensor_id }}" aria-label="Gerätetyp">
+                            <option value="1" {% if sensor.machine_type == 1 %}selected{% endif %}>Waschmaschine</option>
+                            <option value="2" {% if sensor.machine_type == 2 %}selected{% endif %}>Tumbler</option>
                         </select>
-                        <select class="assignment-machine" data-sensor-id="{{ sensor.sensor_id }}">
-                            {% for aggregator_id, aggregator in aggregators.items() %}
-                                {% for machine_id, machine in aggregator.machines.items() %}
-                                <option value="{{ aggregator_id }}:{{ machine.type }}:{{ machine_id }}" {% if sensor.assigned_aggregator_id == aggregator_id|int and sensor.machine_id == machine_id|int %}selected{% endif %}>{{ machine.name }}</option>
-                                {% endfor %}
-                            {% endfor %}
-                        </select>
+                        <input class="assignment-machine" data-sensor-id="{{ sensor.sensor_id }}" type="number" min="1" required aria-label="Maschinennummer" value="{{ sensor.machine_id or '' }}">
                     </td>
                     <td><button class="assign-sensor" data-sensor-id="{{ sensor.sensor_id }}">Speichern</button></td>
                 </tr>
@@ -49,9 +43,10 @@
             button.addEventListener('click', async () => {
                 const sensorId = button.dataset.sensorId;
                 const aggregator = document.querySelector(`.assignment-aggregator[data-sensor-id="${sensorId}"]`).value;
-                const [machineAggregator, machineType, machineId] = document.querySelector(`.assignment-machine[data-sensor-id="${sensorId}"]`).value.split(':');
-                if (aggregator !== machineAggregator) {
-                    alert('Maschine und Aggregator muessen zusammenpassen.');
+                const machineType = document.querySelector(`.assignment-type[data-sensor-id="${sensorId}"]`).value;
+                const machineId = document.querySelector(`.assignment-machine[data-sensor-id="${sensorId}"]`).value;
+                if (!aggregator || !machineId) {
+                    alert('Aggregator-ID und Maschinennummer sind erforderlich.');
                     return;
                 }
                 const response = await fetch(`/api/admin/sensors/${sensorId}/assignment`, {
