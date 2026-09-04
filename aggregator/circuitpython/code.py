@@ -164,8 +164,9 @@ def build_lora_packet(readings):
     
     Packet format (Protocol v4):
     - 4 bytes: Waveshare address header (0x00 0x00 for broadcast + 2 channel bytes)
-    - Byte 0: Aggregator ID
-    - Byte 1: Machine count (N)
+    - Byte 0: Aggregator name length (L)
+    - L bytes: Aggregator name (UTF-8)
+    - Next byte: Machine count (N)
         - N × 13 bytes: Sensor data
             - Bytes 0-5: Static BLE address
             - Byte 6: Flags (bit 0 = assignment active)
@@ -176,14 +177,18 @@ def build_lora_packet(readings):
     
     Returns bytes
     """
-    aggregator_id = CONFIG.get("aggregator_id", 1)
+    aggregator_name = CONFIG.get("aggregator_name", "").strip()
+    encoded_name = aggregator_name.encode("utf-8")
+    if not encoded_name or len(encoded_name) > 32:
+        raise ValueError("aggregator_name must encode to 1-32 bytes")
     
     # Start with Waveshare header (4 bytes: address + channel)
     # Using broadcast address 0x00 0x00 and default channel bytes
     packet = bytearray([0x00, 0x00, 0x00, 0x00])
     
-    # Aggregator ID and machine count
-    packet.append(aggregator_id)
+    # Aggregator name and machine count
+    packet.append(len(encoded_name))
+    packet.extend(encoded_name)
     packet.append(len(readings))
     
     # Add each machine's data
@@ -220,7 +225,6 @@ def blink_led(times=1, on_time=0.1, off_time=0.1):
 def main():
     print("=" * 50)
     print("Washing Machine Aggregator")
-    print(f"ID: {CONFIG.get('aggregator_id', 1)}")
     print(f"Name: {CONFIG.get('aggregator_name', 'Unknown')}")
     print("=" * 50)
     
@@ -277,15 +281,7 @@ def main():
                         packet = build_lora_packet(sensor_cache)
                         print(f"\nTransmitting {len(sensor_cache)} readings via LoRa...")
                     else:
-                        # Keepalive packet (0 machines)
-                        test_packet = bytearray([0x00, 0x00, 0x00, 0x00])  # Waveshare header
-                        test_packet.append(CONFIG.get("aggregator_id", 1))  # Aggregator ID
-                        test_packet.append(0)  # 0 machines (keepalive)
-                        
-                        # Add CRC-32
-                        crc = binascii.crc32(bytes(test_packet))
-                        test_packet.extend(struct.pack('<I', crc))
-                        packet = bytes(test_packet)
+                        packet = build_lora_packet({})
                         print("\nTransmitting keepalive (no sensors found)...")
                     
                     # Send the packet
@@ -304,18 +300,9 @@ def main():
             else:
                 current_time = time.monotonic()
                 if current_time - last_tx_time >= tx_interval:
-                    # Keepalive packet (0 machines)
-                    test_packet = bytearray([0x00, 0x00, 0x00, 0x00])  # Waveshare header
-                    test_packet.append(CONFIG.get("aggregator_id", 1))  # Aggregator ID
-                    test_packet.append(0)  # 0 machines (keepalive)
-                    
-                    # Add CRC-32
-                    crc = binascii.crc32(bytes(test_packet))
-                    test_packet.extend(struct.pack('<I', crc))
-                    
                     print("Sending keepalive (BLE not available)...")
                     led.value = True
-                    sx.send(bytes(test_packet))
+                    sx.send(build_lora_packet({}))
                     led.value = False
                     
                     last_tx_time = current_time
@@ -356,17 +343,20 @@ def parse_mfr_data(advertisement, target_company_id=0xFFFF):
 
         protocol_version = data[0]
         if protocol_version != CONFIG.get("protocol_version", 2):
+            print(f"Ignoring sensor protocol v{protocol_version}; expected v{CONFIG.get('protocol_version', 2)}")
             return None
 
         if len(data) == 7:
-            sensor_id = bytes.fromhex(str(advertisement.address).replace(':', ''))
+            sensor_id = bytes(advertisement.address.address_bytes)
             if len(sensor_id) != 6:
+                print(f"Ignoring sensor with {len(sensor_id)}-byte BLE address")
                 return None
             assignment_active = bool(data[1] & 0x01)
             rms_x1000 = data[2] | (data[3] << 8)
             freq_x10 = data[4] | (data[5] << 8)
             battery_voltage = data[6]
         else:
+            print(f"Ignoring v3 sensor payload with {len(data)} bytes; expected 7")
             return None
 
         reading = SensorReading(

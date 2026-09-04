@@ -32,7 +32,7 @@ def decode_battery_voltage(encoded_voltage: int) -> float:
 @dataclass
 class MachineReading:
     """Single machine reading from LoRa packet"""
-    aggregator_id: int
+    aggregator_name: str
     sensor_id: str
     assignment_active: bool
     rms: float              # m/s²
@@ -55,9 +55,15 @@ def decode_forwarded_packet(packet: bytes, timestamp: Optional[float] = None):
         raise ValueError("CRC mismatch")
 
     payload = packet[4:-4]
-    aggregator_id = payload[0]
-    machine_count = payload[1]
-    expected_length = 2 + machine_count * 13
+    name_length = payload[0]
+    if name_length == 0 or name_length > 32 or len(payload) < name_length + 2:
+        raise ValueError("Invalid aggregator name length")
+    try:
+        aggregator_name = payload[1:1 + name_length].decode('utf-8')
+    except UnicodeError as exception:
+        raise ValueError("Invalid aggregator name encoding") from exception
+    machine_count = payload[1 + name_length]
+    expected_length = 2 + name_length + machine_count * 13
     if len(payload) != expected_length:
         raise ValueError(
             f"Invalid payload length: expected {expected_length}, got {len(payload)}"
@@ -65,10 +71,10 @@ def decode_forwarded_packet(packet: bytes, timestamp: Optional[float] = None):
 
     reading_time = time.time() if timestamp is None else timestamp
     readings = []
-    offset = 2
+    offset = 2 + name_length
     for _ in range(machine_count):
         readings.append(MachineReading(
-            aggregator_id=aggregator_id,
+            aggregator_name=aggregator_name,
             sensor_id=payload[offset:offset + 6].hex().upper(),
             assignment_active=bool(payload[offset + 6] & 0x01),
             rms=struct.unpack('<H', payload[offset + 7:offset + 9])[0] / 1000.0,
@@ -79,7 +85,7 @@ def decode_forwarded_packet(packet: bytes, timestamp: Optional[float] = None):
         ))
         offset += 13
 
-    return aggregator_id, readings
+    return aggregator_name, readings
 
 
 class WaveshareLoRaConfig:
@@ -175,13 +181,12 @@ class LoRaReceiver:
     Data received via LoRa appears directly on the serial port.
     
     Expected packet format (binary):
-    - Byte 0: Aggregator ID
-    - Byte 1: Machine count (N)
-    - Bytes 2+: N × 6 bytes of machine data
-      - Byte 0: Machine ID
-      - Bytes 1-2: RMS × 100 (uint16, little-endian)
-      - Bytes 3-4: Freq × 10 (uint16, little-endian)
-    - Byte 5: Battery voltage (1.00 V + value × 10 mV)
+        - 4-byte Waveshare header
+        - 1-byte aggregator name length
+        - UTF-8 aggregator name
+        - 1-byte machine count
+        - N × 13-byte sensor records
+        - CRC-32
     """
     
     # Waveshare default baud rate is 115200
@@ -277,24 +282,27 @@ class LoRaReceiver:
                     logger.debug(f"Received {len(data)} bytes, buffer now {len(buffer)} bytes")
                     
                     # Try to parse complete packets
-                    while len(buffer) >= 2:
-                        # Validate aggregator ID (should be 1-255)
-                        if buffer[0] == 0 or buffer[0] > 250:
-                            # Invalid packet start, skip byte
-                            logger.warning(f"Invalid aggregator ID {buffer[0]}, skipping byte")
+                    while len(buffer) >= 10:
+                        if buffer[:4] != b'\x00\x00\x00\x00':
+                            logger.warning("Invalid Waveshare header, skipping byte")
                             del buffer[0]
                             continue
-                        
-                        # Validate machine count (should be reasonable)
-                        machine_count = buffer[1]
+
+                        name_length = buffer[4]
+                        if name_length == 0 or name_length > 32:
+                            logger.warning("Invalid aggregator name length, skipping byte")
+                            del buffer[0]
+                            continue
+                        if len(buffer) < 6 + name_length:
+                            break
+
+                        machine_count = buffer[5 + name_length]
                         if machine_count > 30:
-                            # Invalid count, skip byte
                             logger.warning(f"Invalid machine count {machine_count}, skipping byte")
                             del buffer[0]
                             continue
-                        
-                        # Protocol v2: 7 bytes per machine (type + id + rms + freq + batt)
-                        packet_len = 2 + (machine_count * 7)
+
+                        packet_len = 10 + name_length + machine_count * 13
                         
                         if len(buffer) >= packet_len:
                             # Extract and parse packet
@@ -319,46 +327,20 @@ class LoRaReceiver:
                 logger.exception(f"Error in receive loop: {e}")
                 
     def _parse_packet(self, packet: bytes):
-        """Parse a complete LoRa packet (Protocol v2)"""
+        """Parse a complete name-based LoRa packet."""
         try:
-            aggregator_id = packet[0]
-            machine_count = packet[1]
-            
-            logger.debug(f"Received packet: aggregator={aggregator_id}, machines={machine_count}")
-            
-            # Handle heartbeat packets (0 machines)
-            if machine_count == 0:
-                logger.info(f"Received heartbeat from aggregator {aggregator_id}")
-                # Update last packet time even for heartbeats to show aggregator is online
+            aggregator_name, readings = decode_forwarded_packet(packet)
+            logger.debug(
+                f"Received packet: aggregator={aggregator_name}, machines={len(readings)}"
+            )
+
+            if not readings:
+                logger.info(f"Received heartbeat from aggregator {aggregator_name}")
                 return
-            
-            timestamp = time.time()
-            offset = 2
-            
-            for i in range(machine_count):
-                if offset + 7 > len(packet):
-                    logger.warning("Packet truncated")
-                    break
-                    
-                machine_type = packet[offset]
-                machine_id = packet[offset+1]
-                rms_x100 = struct.unpack('<H', packet[offset+2:offset+4])[0]
-                freq_x10 = struct.unpack('<H', packet[offset+4:offset+6])[0]
-                battery_voltage = decode_battery_voltage(packet[offset+6])
-                
-                reading = MachineReading(
-                    aggregator_id=aggregator_id,
-                    machine_type=machine_type,
-                    machine_id=machine_id,
-                    rms=rms_x100 / 100.0,
-                    dominant_freq=freq_x10 / 10.0,
-                    battery_voltage=battery_voltage,
-                    timestamp=timestamp
-                )
-                
-                type_str = "W" if machine_type == 1 else "T"
+
+            for reading in readings:
                 logger.info(
-                    f"[{type_str}] Machine {aggregator_id}/{machine_id}: "
+                    f"Sensor {reading.sensor_id} from {aggregator_name}: "
                     f"RMS={reading.rms:.2f} m/s², "
                     f"Freq={reading.dominant_freq:.1f} Hz, "
                     f"Batt={reading.battery_voltage:.2f} V"
@@ -366,8 +348,6 @@ class LoRaReceiver:
                 
                 if self.callback:
                     self.callback(reading)
-                    
-                offset += 7
                 
         except Exception as e:
             logger.exception(f"Failed to parse packet: {e}")
@@ -381,11 +361,11 @@ class MockLoRaReceiver(LoRaReceiver):
         super().__init__("MOCK", 9600)
         self._mock_connected = True
         self.mock_machines = [
-            (1, 1, 1, True),   # Aggregator 1, Machine 1, Type washer, running
-            (1, 1, 2, False),  # Aggregator 1, Machine 2, Type washer, idle
-            (1, 2, 3, True),   # Aggregator 1, Machine 3, Type dryer, running
-            (2, 1, 1, False),  # Aggregator 2, Machine 1, Type washer, idle
-            (2, 2, 2, True),   # Aggregator 2, Machine 2, Type dryer, running
+            ("D1", 1, 1, True),
+            ("D1", 1, 2, False),
+            ("D1", 2, 3, True),
+            ("D2", 1, 1, False),
+            ("D2", 2, 2, True),
         ]
     
     @property
@@ -405,7 +385,7 @@ class MockLoRaReceiver(LoRaReceiver):
         import random
         
         while self.running:
-            for agg_id, machine_type, machine_id, is_running in self.mock_machines:
+            for aggregator_name, machine_type, machine_id, is_running in self.mock_machines:
                 if is_running:
                     rms = random.uniform(1.0, 3.0)
                     freq = random.uniform(10, 25)
@@ -414,7 +394,9 @@ class MockLoRaReceiver(LoRaReceiver):
                     freq = random.uniform(0, 5)
                     
                 reading = MachineReading(
-                    aggregator_id=agg_id,
+                    aggregator_name=aggregator_name,
+                    sensor_id=f"0000000000{machine_id:02X}",
+                    assignment_active=False,
                     machine_type=machine_type,
                     machine_id=machine_id,
                     rms=rms,

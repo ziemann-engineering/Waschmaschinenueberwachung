@@ -24,7 +24,7 @@ class Subscription:
     id: str
     email: Optional[str] = None
     webhook_url: Optional[str] = None
-    watch_aggregator: Optional[int] = None  # None = all
+    watch_aggregator: Optional[str] = None  # None = all
     watch_machine: Optional[int] = None     # None = all in aggregator
     notify_on_done: bool = True
     notify_on_free: bool = False
@@ -69,7 +69,7 @@ class NotificationManager:
         if not self.enabled:
             return
             
-        key = (machine.aggregator_id, machine.machine_id)
+        key = (machine.aggregator_name, machine.machine_id)
         
         # Notify when machine becomes DONE
         if new_state == MachineState.DONE:
@@ -93,7 +93,7 @@ class NotificationManager:
                     continue
                     
                 # Check if subscription matches this machine
-                if sub.watch_aggregator and sub.watch_aggregator != machine.aggregator_id:
+                if sub.watch_aggregator and sub.watch_aggregator != machine.aggregator_name:
                     continue
                 if sub.watch_machine and sub.watch_machine != machine.machine_id:
                     continue
@@ -102,7 +102,7 @@ class NotificationManager:
                     sub,
                     f"🟢 {machine.name} is likely done!",
                     f"The washing machine '{machine.name}' appears to have finished.\n"
-                    f"Location: Aggregator {machine.aggregator_id}\n"
+                    f"Location: {machine.aggregator_name}\n"
                     f"Please collect your laundry."
                 )
                 
@@ -116,11 +116,11 @@ class NotificationManager:
                 # Check if subscription matches
                 if sub.notify_any_free:
                     # Any free notification - check aggregator filter
-                    if sub.watch_aggregator and sub.watch_aggregator != machine.aggregator_id:
+                    if sub.watch_aggregator and sub.watch_aggregator != machine.aggregator_name:
                         continue
                 elif sub.notify_on_free:
                     # Specific machine notification
-                    if sub.watch_aggregator and sub.watch_aggregator != machine.aggregator_id:
+                    if sub.watch_aggregator and sub.watch_aggregator != machine.aggregator_name:
                         continue
                     if sub.watch_machine and sub.watch_machine != machine.machine_id:
                         continue
@@ -129,7 +129,7 @@ class NotificationManager:
                     sub,
                     f"🔵 {machine.name} is now free!",
                     f"The washing machine '{machine.name}' is now available.\n"
-                    f"Location: Aggregator {machine.aggregator_id}"
+                    f"Location: {machine.aggregator_name}"
                 )
                 
     def _send_notification(self, subscription: Subscription, subject: str, body: str):

@@ -34,7 +34,7 @@ A low-power IoT system to monitor washing machines and dryers, showing availabil
 - **Function**:
   - Continuously scan for BLE advertisements from sensor nodes
   - Forward received data via LoRa immediately
-  - Add aggregator ID to packets
+  - Add the configured aggregator name to packets
 
 ### 3. WiFi Bridge (`/wifi_bridge`)
 - **Hardware**: Seeed XIAO ESP32S3 + SX1262 LoRa module
@@ -82,8 +82,7 @@ Each device uses a JSON config file stored on its filesystem:
 ### Aggregator (`config.json`)
 ```json
 {
-  "aggregator_name": "Building_A_Floor_1",
-  "aggregator_id": 1,
+  "aggregator_name": "D2",
   "ble_scan_duration_sec": 5,
   "lora_tx_interval_sec": 0
 }
@@ -99,10 +98,6 @@ Each device uses a JSON config file stored on its filesystem:
     "running_rms": 0.5,
     "done_minutes": 10,
     "free_minutes": 120
-  },
-  "aggregators": {
-    "1": {"name": "Building A Floor 1", "machines": [1, 2, 3, 4, 5]},
-    "2": {"name": "Building B Basement", "machines": [1, 2, 3, 4, 5, 6]}
   }
 }
 ```
@@ -129,19 +124,22 @@ Binary packet, variable length:
 
 | Byte | Field | Description |
 |------|-------|-------------|
-| 0 | Aggregator ID | 1-255 |
-| 1 | Machine Count | Number of machines in this packet (N) |
-| 2+ | Machine Data | N × 6 bytes (see below) |
+| 0 | Name Length | UTF-8 byte length (1-32) |
+| 1..L | Aggregator Name | UTF-8 name, for example `D2` |
+| 1+L | Machine Count | Number of sensors in this packet (N) |
+| 2+L | Sensor Data | N × 13 bytes |
 
-Machine Data (6 bytes each):
+Sensor Data (13 bytes each):
 | Offset | Field | Description |
 |--------|-------|-------------|
-| 0 | Machine ID | 1-255 |
-| 1-2 | RMS × 100 | uint16, little-endian |
-| 3-4 | Dominant Freq × 10 | uint16, little-endian |
-| 5 | Battery voltage | `0..255` = `1.00..3.55 V` in 10 mV steps |
+| 0-5 | Sensor ID | Six-byte BLE address |
+| 6 | Flags | Bit 0: assignment active |
+| 7-8 | RMS × 1000 | uint16, little-endian |
+| 9-10 | Dominant Freq × 10 | uint16, little-endian |
+| 11 | Battery voltage | `0..255` = `1.00..3.55 V` in 10 mV steps |
+| 12 | RSSI | Signed BLE RSSI in dBm |
 
-Max packet: 2 + (20 × 6) = 122 bytes (fits in LoRa payload)
+The frame also includes the four-byte Waveshare header before this payload and a CRC-32 after it.
 
 ### LoRa Parameters
 - **Frequency**: 868.0 MHz (EU ISM band)
@@ -186,7 +184,7 @@ With C firmware: potentially 12-18 months
 ### Aggregator
 1. Install CircuitPython 9.x on XIAO ESP32S3
 2. Copy `aggregator/circuitpython/` contents to CIRCUITPY drive
-3. Edit `config.json` with aggregator ID and name
+3. Edit `config.json` with the aggregator name
 4. Connect LoRa UART module and power via USB
 
 ### Server
@@ -200,7 +198,7 @@ With C firmware: potentially 12-18 months
 ## Web Interface
 
 - **Main page** (`/`): All aggregators with machine counts
-- **Aggregator page** (`/aggregator/<id>`): Machines for one aggregator
+- **Aggregator page** (`/aggregator/<name>`): Machines for one aggregator
 - **API** (`/api/status`): JSON status for all machines
 - **Subscribe** (`/subscribe`): Register for done notifications
 

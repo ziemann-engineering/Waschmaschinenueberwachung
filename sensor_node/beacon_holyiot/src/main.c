@@ -256,12 +256,12 @@ static void update_advertising_data(void)
     bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
 }
 
-static void assignment_button_poll(struct k_timer *timer_id)
+static void assignment_button_work_handler(struct k_work *work)
 {
     int64_t now;
     bool is_pressed;
 
-    ARG_UNUSED(timer_id);
+    ARG_UNUSED(work);
 
     now = k_uptime_get();
     is_pressed = gpio_pin_get_dt(&assignment_button) > 0;
@@ -273,7 +273,7 @@ static void assignment_button_poll(struct k_timer *timer_id)
             assignment_active_until = now + ASSIGNMENT_WINDOW_MS;
             current_sensor_data.flags |= SENSOR_FLAG_ASSIGNMENT_ACTIVE;
             update_advertising_data();
-            blink_led(&led_green, 3, 80);
+            gpio_pin_set_dt(&led_green, 1);
         }
     }
 
@@ -283,7 +283,16 @@ static void assignment_button_poll(struct k_timer *timer_id)
         now >= assignment_active_until) {
         current_sensor_data.flags &= ~SENSOR_FLAG_ASSIGNMENT_ACTIVE;
         update_advertising_data();
+        gpio_pin_set_dt(&led_green, 0);
     }
+}
+
+K_WORK_DEFINE(assignment_button_work, assignment_button_work_handler);
+
+static void assignment_button_timer_callback(struct k_timer *timer_id)
+{
+    ARG_UNUSED(timer_id);
+    k_work_submit(&assignment_button_work);
 }
 
 /* Work item for periodic sensor reading */
@@ -342,13 +351,14 @@ static void sensor_work_handler(struct k_work *work)
 
 /* Define the timer */
 K_TIMER_DEFINE(sensor_timer, sensor_timer_callback, NULL);
-K_TIMER_DEFINE(assignment_button_timer, assignment_button_poll, NULL);
+K_TIMER_DEFINE(assignment_button_timer, assignment_button_timer_callback, NULL);
 
 static int configure_static_ble_identity(void)
 {
     uint8_t device_id[8];
     bt_addr_le_t address = { .type = BT_ADDR_LE_RANDOM };
     ssize_t device_id_length;
+    int identity;
 
     device_id_length = hwinfo_get_device_id(device_id, sizeof(device_id));
     if (device_id_length < 6) {
@@ -359,7 +369,12 @@ static int configure_static_ble_identity(void)
     address.a.val[5] &= 0x3f;
     address.a.val[5] |= 0xc0;
 
-    return bt_id_reset(BT_ID_DEFAULT, &address, NULL);
+    identity = bt_id_create(&address, NULL);
+    if (identity < 0) {
+        return identity;
+    }
+
+    return identity == BT_ID_DEFAULT ? 0 : -EINVAL;
 }
 
 static void bt_ready(int err)
@@ -420,6 +435,11 @@ int main(void)
     }
 
     ret = gpio_pin_configure_dt(&assignment_button, GPIO_INPUT);
+    if (ret < 0) {
+        return ret;
+    }
+
+    ret = gpio_pin_configure_dt(&led_green, GPIO_OUTPUT_INACTIVE);
     if (ret < 0) {
         return ret;
     }

@@ -106,47 +106,49 @@ def api_assign_sensor(sensor_id: str):
         return authentication_error
     data = request.get_json(silent=True) or {}
     try:
-        aggregator_id = int(data['aggregator_id'])
+        aggregator_name = str(data['aggregator_name']).strip()
         machine_type = int(data['machine_type'])
         machine_id = int(data['machine_id'])
     except (KeyError, TypeError, ValueError):
-        abort(400, 'aggregator_id, machine_type, and machine_id are required integers')
+        abort(400, 'aggregator_name, machine_type, and machine_id are required')
 
-    if aggregator_id < 1 or machine_id < 1 or machine_type not in (1, 2):
-        abort(400, 'aggregator_id and machine_id must be positive; machine_type must be 1 or 2')
+    if not aggregator_name or len(aggregator_name.encode('utf-8')) > 32:
+        abort(400, 'aggregator_name must encode to 1-32 bytes')
+    if machine_id < 1 or machine_type not in (1, 2):
+        abort(400, 'machine_id must be positive; machine_type must be 1 or 2')
     try:
-        database.assign_sensor(sensor_id, aggregator_id, machine_type, machine_id, time.time())
+        database.assign_sensor(sensor_id, aggregator_name, machine_type, machine_id, time.time())
     except sqlite3.IntegrityError:
         abort(409, 'That machine is already assigned to another sensor')
     except ValueError:
         abort(404, 'Unknown sensor')
     state_machine.load_assignments([{
-        'assigned_aggregator_id': aggregator_id,
+        'assigned_aggregator_name': aggregator_name,
         'machine_type': machine_type,
         'machine_id': machine_id,
     }])
     return jsonify({'success': True})
 
 
-@app.route('/aggregator/<int:aggregator_id>/machine/<int:machine_id>')
-def machine_history_page(aggregator_id: int, machine_id: int):
+@app.route('/aggregator/<aggregator_name>/machine/<int:machine_id>')
+def machine_history_page(aggregator_name: str, machine_id: int):
     """Machine sensor history page."""
-    machine = state_machine.get_machine_status(aggregator_id, machine_id)
+    machine = state_machine.get_machine_status(aggregator_name, machine_id)
     if not machine:
         abort(404)
 
     return render_template(
         'machine_history.html',
         machine=machine,
-        aggregator_name=f"Aggregator {aggregator_id}"
+        aggregator_name=aggregator_name
     )
 
 
-@app.route('/aggregator/<int:aggregator_id>')
-def aggregator_page(aggregator_id: int):
+@app.route('/aggregator/<aggregator_name>')
+def aggregator_page(aggregator_name: str):
     """Single live aggregator page."""
     status = state_machine.get_aggregator_status(
-        aggregator_id, database.get_live_aggregators()
+        aggregator_name, database.get_live_aggregators()
     )
     if not status:
         abort(404)
@@ -167,32 +169,32 @@ def api_health():
     return jsonify({'status': 'ok'})
 
 
-@app.route('/api/aggregator/<int:aggregator_id>')
-def api_aggregator(aggregator_id: int):
+@app.route('/api/aggregator/<aggregator_name>')
+def api_aggregator(aggregator_name: str):
     """API endpoint - single aggregator status"""
     status = state_machine.get_aggregator_status(
-        aggregator_id, database.get_live_aggregators()
+        aggregator_name, database.get_live_aggregators()
     )
     if not status:
         abort(404)
     return jsonify(status)
 
 
-@app.route('/api/machine/<int:aggregator_id>/<int:machine_id>')
-def api_machine(aggregator_id: int, machine_id: int):
+@app.route('/api/machine/<aggregator_name>/<int:machine_id>')
+def api_machine(aggregator_name: str, machine_id: int):
     """API endpoint - single machine status"""
-    status = state_machine.get_machine_status(aggregator_id, machine_id)
+    status = state_machine.get_machine_status(aggregator_name, machine_id)
     if not status:
         abort(404)
     return jsonify(status)
 
 
-@app.route('/api/history/<int:aggregator_id>/<int:machine_id>')
-def api_history(aggregator_id: int, machine_id: int):
+@app.route('/api/history/<aggregator_name>/<int:machine_id>')
+def api_history(aggregator_name: str, machine_id: int):
     """API endpoint - machine reading history"""
     hours = request.args.get('hours', 24, type=float)
-    readings = database.get_recent_readings(aggregator_id, machine_id, hours)
-    cycles = database.get_cycle_history(aggregator_id, machine_id, 20)
+    readings = database.get_recent_readings(aggregator_name, machine_id, hours)
+    cycles = database.get_cycle_history(aggregator_name, machine_id, 20)
     return jsonify({
         'readings': readings,
         'cycles': cycles
@@ -209,7 +211,7 @@ def api_subscribe():
         id=str(uuid.uuid4()),
         email=data.get('email'),
         webhook_url=data.get('webhook_url'),
-        watch_aggregator=data.get('aggregator_id'),
+        watch_aggregator=data.get('aggregator_name'),
         watch_machine=data.get('machine_id'),
         notify_on_done=data.get('notify_on_done', True),
         notify_on_free=data.get('notify_on_free', False),
@@ -251,17 +253,18 @@ def api_lora_data():
             return jsonify({'error': f'Invalid hex packet data: {e}'}), 400
         
         try:
-            aggregator_id, readings = decode_forwarded_packet(packet_data)
+            aggregator_name, readings = decode_forwarded_packet(packet_data)
         except ValueError as exception:
             return jsonify({'error': str(exception)}), 400
 
         logger.info(
-            f"Received HTTP LoRa packet: aggregator={aggregator_id}, "
+            f"Received HTTP LoRa packet: aggregator={aggregator_name}, "
             f"machines={len(readings)}"
         )
+        database.record_aggregator_contact(aggregator_name, time.time())
 
         if not readings:
-            logger.info(f"Received heartbeat from aggregator {aggregator_id}")
+            logger.info(f"Received heartbeat from aggregator {aggregator_name}")
             return jsonify({'success': True, 'type': 'heartbeat'})
 
         for reading in readings:
@@ -295,11 +298,11 @@ def api_lora_data():
 def on_reading_received(reading: MachineReading):
     """Callback when a sensor reading is received"""
     database.record_sensor_observation(
-        reading.sensor_id, reading.aggregator_id, reading.assignment_active,
+        reading.sensor_id, reading.aggregator_name, reading.assignment_active,
         reading.timestamp
     )
     assignment = database.get_sensor_assignment(reading.sensor_id)
-    if not assignment or assignment['assigned_aggregator_id'] != reading.aggregator_id:
+    if not assignment or assignment['assigned_aggregator_name'] != reading.aggregator_name:
         return
     reading.machine_type = assignment['machine_type']
     reading.machine_id = assignment['machine_id']
@@ -316,7 +319,7 @@ def on_reading_received(reading: MachineReading):
         
         # Store state change
         database.store_state_change(
-            machine.aggregator_id,
+            machine.aggregator_name,
             machine.machine_id,
             old_state,
             new_state
@@ -326,9 +329,9 @@ def on_reading_received(reading: MachineReading):
         if new_state == MachineState.RUNNING and old_state in (
             MachineState.FREE, MachineState.DONE, MachineState.UNKNOWN
         ):
-            database.start_cycle(machine.aggregator_id, machine.machine_id)
+            database.start_cycle(machine.aggregator_name, machine.machine_id)
         elif new_state == MachineState.FREE and old_state == MachineState.DONE:
-            database.end_cycle(machine.aggregator_id, machine.machine_id)
+            database.end_cycle(machine.aggregator_name, machine.machine_id)
             
         # Send notifications
         notification_manager.on_state_change(machine, old_state, new_state)
@@ -342,7 +345,7 @@ def offline_check_loop():
         
         for machine, old_state, new_state in state_changes:
             database.store_state_change(
-                machine.aggregator_id,
+                machine.aggregator_name,
                 machine.machine_id,
                 old_state,
                 new_state

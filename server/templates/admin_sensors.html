@@ -3,37 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sensorzuordnung - Waschmaschinen-Status</title>
+    <title>Sensoren - Waschmaschinen-Status</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <header>
         <nav class="nav-bar"><a href="/" class="back-link">Zur Übersicht</a></nav>
-        <h1>Sensorzuordnung</h1>
+        <h1>Sensoren</h1>
     </header>
     <main class="admin-main">
         <table class="sensor-table">
             <thead>
-                <tr><th>BLE-ID</th><th>Letzter Aggregator</th><th>Zuordnungstaste</th><th>Zuordnung</th><th>Aktion</th></tr>
+                <tr><th>BLE-ID</th><th>Letzter Aggregator</th><th>Letzter Tastendruck</th><th>Typ</th><th>Nummer</th><th>Aktion</th></tr>
             </thead>
             <tbody>
             {% for sensor in sensors %}
-                <tr>
+                <tr data-aggregator-name="{{ sensor.last_aggregator_name or '' }}">
                     <td><code>{{ sensor.sensor_id }}</code></td>
-                    <td>{{ sensor.last_aggregator_id or '-' }}</td>
+                    <td>{{ sensor.last_aggregator_name or '-' }}</td>
                     <td>{{ format_timestamp(sensor.last_assignment_flag_at) }}</td>
                     <td>
-                        <input class="assignment-aggregator" data-sensor-id="{{ sensor.sensor_id }}" type="number" min="1" required aria-label="Aggregator-ID" value="{{ sensor.assigned_aggregator_id or sensor.last_aggregator_id or '' }}">
                         <select class="assignment-type" data-sensor-id="{{ sensor.sensor_id }}" aria-label="Gerätetyp">
                             <option value="1" {% if sensor.machine_type == 1 %}selected{% endif %}>Waschmaschine</option>
                             <option value="2" {% if sensor.machine_type == 2 %}selected{% endif %}>Tumbler</option>
                         </select>
+                    </td>
+                    <td>
                         <input class="assignment-machine" data-sensor-id="{{ sensor.sensor_id }}" type="number" min="1" required aria-label="Maschinennummer" value="{{ sensor.machine_id or '' }}">
                     </td>
                     <td><button class="assign-sensor" data-sensor-id="{{ sensor.sensor_id }}">Speichern</button></td>
                 </tr>
             {% else %}
-                <tr><td colspan="5">Noch keine Sensoren empfangen.</td></tr>
+                <tr><td colspan="6">Noch keine Sensoren empfangen.</td></tr>
             {% endfor %}
             </tbody>
         </table>
@@ -42,16 +43,17 @@
         document.querySelectorAll('.assign-sensor').forEach((button) => {
             button.addEventListener('click', async () => {
                 const sensorId = button.dataset.sensorId;
-                const aggregator = document.querySelector(`.assignment-aggregator[data-sensor-id="${sensorId}"]`).value;
-                const machineType = document.querySelector(`.assignment-type[data-sensor-id="${sensorId}"]`).value;
-                const machineId = document.querySelector(`.assignment-machine[data-sensor-id="${sensorId}"]`).value;
-                if (!aggregator || !machineId) {
-                    alert('Aggregator-ID und Maschinennummer sind erforderlich.');
+                const row = button.closest('tr');
+                const aggregatorName = row.dataset.aggregatorName;
+                const machineType = row.querySelector('.assignment-type').value;
+                const machineId = row.querySelector('.assignment-machine').value;
+                if (!aggregatorName || !machineId) {
+                    alert('Letzter Aggregator und Nummer sind erforderlich.');
                     return;
                 }
                 const response = await fetch(`/api/admin/sensors/${sensorId}/assignment`, {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({aggregator_id: aggregator, machine_type: machineType, machine_id: machineId})
+                    body: JSON.stringify({aggregator_name: aggregatorName, machine_type: machineType, machine_id: machineId})
                 });
                 if (!response.ok) alert(await response.text());
                 else window.location.reload();
