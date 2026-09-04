@@ -11,4 +11,4 @@ EXPOSE 8080
 
 WORKDIR /app/code
 
-CMD ["python", "main.py", "--config", "../data/config.json"]
+CMD ["gunicorn", "--workers", "1", "--threads", "4", "--bind", "0.0.0.0:8080", "--timeout", "120", "wsgi:app"]

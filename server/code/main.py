@@ -387,59 +387,58 @@ def cleanup_loop():
 
 # ============================================================================
 # Main
-# ============================================================================
-
-def main():
+def initialize_application(config_file: str = 'config.json', mock: bool = False):
     global state_machine, database, notification_manager, config
-    
-    parser = argparse.ArgumentParser(description='Washing Machine Monitoring Server')
-    parser.add_argument('--config', default='config.json', help='Config file path')
-    parser.add_argument('--mock', action='store_true', help='Use mock data generation')
-    parser.add_argument('--debug', action='store_true', help='Enable debug mode')
-    args = parser.parse_args()
-    
-    # Load configuration
-    config_path = Path(__file__).parent / args.config
+
+    if state_machine is not None:
+        return
+
+    config_path = Path(__file__).parent / config_file
     config = load_config(config_path)
-    
-    # Override config with environment variables if set
+
     if os.getenv('WEB_HOST'):
         config['web_host'] = os.getenv('WEB_HOST')
     if os.getenv('WEB_PORT'):
         config['web_port'] = int(os.getenv('WEB_PORT'))
     if os.getenv('DATABASE_PATH'):
         config['database_path'] = os.getenv('DATABASE_PATH')
-    
+
     logger.info("=" * 60)
     logger.info("Washing Machine Monitoring Server (HTTP Mode)")
     logger.info("=" * 60)
-    
-    # Initialize components
+
     thresholds = Thresholds(
         running_rms=config['thresholds']['running_rms'],
         done_minutes=config['thresholds']['done_minutes'],
         free_minutes=config['thresholds']['free_minutes']
     )
-    
+
     database = Database(config.get('database_path', 'washing_machines.db'))
     state_machine = StateMachine(thresholds, config)
     state_machine.load_assignments(database.get_assignments())
     notification_manager = NotificationManager(config)
-    
-    # Start background threads
-    offline_thread = threading.Thread(target=offline_check_loop, daemon=True)
-    offline_thread.start()
-    
-    cleanup_thread = threading.Thread(target=cleanup_loop, daemon=True)
-    cleanup_thread.start()
-    
-    # Start mock data if requested
-    if args.mock:
+
+    threading.Thread(target=offline_check_loop, daemon=True).start()
+    threading.Thread(target=cleanup_loop, daemon=True).start()
+
+    if mock:
         logger.info("Starting mock data generation")
         from lora_receiver import MockLoRaReceiver
         mock_receiver = MockLoRaReceiver()
         mock_receiver.set_callback(on_reading_received)
         mock_receiver.start()
+
+
+# ============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(description='Washing Machine Monitoring Server')
+    parser.add_argument('--config', default='config.json', help='Config file path')
+    parser.add_argument('--mock', action='store_true', help='Use mock data generation')
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+    args = parser.parse_args()
+
+    initialize_application(args.config, args.mock)
     
     # Start Flask app
     logger.info(f"Starting web server on {config['web_host']}:{config['web_port']}")
