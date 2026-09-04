@@ -53,6 +53,7 @@ class MachineStatus:
     last_running_time: float = 0.0      # When it was last running
     state_change_time: float = 0.0      # When state last changed
     cycle_start_time: Optional[float] = None  # When current/last cycle started
+    high_vibration_times: list[float] = field(default_factory=list)
     
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization"""
@@ -212,9 +213,20 @@ class StateMachine:
             machine.last_reading_time = reading.timestamp
             
             # Determine new state
-            is_running = reading.rms >= self.thresholds.running_rms
+            above_running_threshold = reading.rms > self.thresholds.running_rms
+            window_start = reading.timestamp - 60
+            machine.high_vibration_times = [
+                timestamp for timestamp in machine.high_vibration_times
+                if timestamp >= window_start
+            ]
+            if above_running_threshold:
+                machine.high_vibration_times.append(reading.timestamp)
+
+            running_confirmed = len(machine.high_vibration_times) >= 3
             
-            if is_running:
+            if above_running_threshold and (
+                old_state == MachineState.RUNNING or running_confirmed
+            ):
                 new_state = MachineState.RUNNING
                 machine.last_running_time = now
                 
@@ -222,6 +234,8 @@ class StateMachine:
                 if old_state in (MachineState.FREE, MachineState.DONE, MachineState.UNKNOWN):
                     machine.cycle_start_time = now
                     logger.info(f"Machine {key} started new cycle")
+            elif above_running_threshold:
+                new_state = old_state
             else:
                 # Calculate time since last running
                 if machine.last_running_time > 0:
