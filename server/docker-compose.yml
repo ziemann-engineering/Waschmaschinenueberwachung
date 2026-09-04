@@ -10,8 +10,7 @@ services:
       - WEB_HOST=0.0.0.0
       - WEB_PORT=8080
       - DATABASE_PATH=/app/data/washing_machines.db
-    env_file:
-      - ./data/.env
+    env_file:   ./data/.env
     networks:
       edge:
         aliases:
