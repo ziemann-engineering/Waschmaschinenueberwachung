@@ -198,7 +198,9 @@ With C firmware: potentially 12-18 months
 ## Web Interface
 
 - **Main page** (`/`): All aggregators with machine counts
-- **Aggregator page** (`/aggregator/<name>`): Machines for one aggregator
+- **Aggregator page** (`/<name>`): Machines for one aggregator, for example `/D2`
+- **Machine history** (`/<name>/<type><number>`): For example `/D2/W2` or `/D2/T2`
+- **Machine page** (`/<name>/<number>`): One machine's history, for example `/D2/99`
 - **API** (`/api/status`): JSON status for all machines
 - **Subscribe** (`/subscribe`): Register for done notifications
 

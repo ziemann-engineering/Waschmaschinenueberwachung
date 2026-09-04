@@ -14,12 +14,12 @@
 			<a href="/info" class="info-link">Info</a>
 		</nav>
 		<h1>{{ machine.name }}</h1>
-		<p class="location">Sensor {{ machine.aggregator_name }}/{{ machine.machine_id }} · {{ machine.type_label }}</p>
+		<p class="location">Sensor {{ machine.aggregator_name }}/{{ machine.machine_key }} · {{ machine.type_label }}</p>
 		<p class="last-update">Datenstand: <span id="history-update-time">wird geladen</span></p>
 	</header>
 
 	<main class="history-page"
-		  data-history-url="{{ url_for('api_history', aggregator_name=machine.aggregator_name, machine_id=machine.machine_id) }}">
+		  data-history-url="{{ url_for('api_history', aggregator_name=machine.aggregator_name, machine_key=machine.machine_key) }}">
 		<div id="history-error" class="error-banner" hidden></div>
 
 		<section class="history-toolbar" aria-label="Zeitraum">

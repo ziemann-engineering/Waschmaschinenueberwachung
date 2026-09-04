@@ -53,6 +53,7 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp REAL NOT NULL,
                     aggregator_name TEXT NOT NULL,
+                    machine_type INTEGER NOT NULL,
                     machine_id INTEGER NOT NULL,
                     rms REAL NOT NULL,
                     dominant_freq REAL NOT NULL,
@@ -75,6 +76,7 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp REAL NOT NULL,
                     aggregator_name TEXT NOT NULL,
+                    machine_type INTEGER NOT NULL,
                     machine_id INTEGER NOT NULL,
                     old_state TEXT NOT NULL,
                     new_state TEXT NOT NULL
@@ -86,6 +88,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS cycles (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     aggregator_name TEXT NOT NULL,
+                    machine_type INTEGER NOT NULL,
                     machine_id INTEGER NOT NULL,
                     start_time REAL NOT NULL,
                     end_time REAL,
@@ -135,27 +138,31 @@ class Database:
             ''')
 
             self._migrate_aggregator_identity(cursor)
+            self._migrate_machine_type(cursor)
             
             # Create indexes for common queries
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_readings_time 
                 ON readings(timestamp DESC)
             ''')
+            cursor.execute('DROP INDEX IF EXISTS idx_readings_machine')
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_readings_machine 
-                ON readings(aggregator_name, machine_id, timestamp DESC)
+                ON readings(aggregator_name, machine_type, machine_id, timestamp DESC)
             ''')
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_state_changes_time 
                 ON state_changes(timestamp DESC)
             ''')
+            cursor.execute('DROP INDEX IF EXISTS idx_cycles_machine')
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_cycles_machine 
-                ON cycles(aggregator_name, machine_id, start_time DESC)
+                ON cycles(aggregator_name, machine_type, machine_id, start_time DESC)
             ''')
+            cursor.execute('DROP INDEX IF EXISTS idx_sensor_assignments_machine')
             cursor.execute('''
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_sensor_assignments_machine
-                ON sensors(assigned_aggregator_name, machine_id)
+                ON sensors(assigned_aggregator_name, machine_type, machine_id)
                 WHERE machine_id IS NOT NULL
             ''')
             
@@ -204,6 +211,25 @@ class Database:
                 SELECT 'D' || aggregator_id, last_seen_at FROM legacy_aggregators
             ''')
             cursor.execute('DROP TABLE legacy_aggregators')
+
+    @staticmethod
+    def _migrate_machine_type(cursor):
+        for table in ('readings', 'state_changes', 'cycles'):
+            cursor.execute(f'PRAGMA table_info({table})')
+            columns = {row['name'] for row in cursor.fetchall()}
+            if 'machine_type' not in columns:
+                cursor.execute(
+                    f'ALTER TABLE {table} ADD COLUMN machine_type INTEGER NOT NULL DEFAULT 0'
+                )
+                cursor.execute(f'''
+                    UPDATE {table}
+                    SET machine_type = COALESCE((
+                        SELECT sensors.machine_type
+                        FROM sensors
+                        WHERE sensors.assigned_aggregator_name = {table}.aggregator_name
+                          AND sensors.machine_id = {table}.machine_id
+                    ), 0)
+                ''')
 
     def record_sensor_observation(self, sensor_id: str, aggregator_name: str,
                                   assignment_active: bool, timestamp: float):
@@ -306,7 +332,8 @@ class Database:
         """Store a sensor reading"""
         with self._cursor() as cursor:
             values = (
-                reading.timestamp, reading.aggregator_name, reading.machine_id,
+                reading.timestamp, reading.aggregator_name, reading.machine_type,
+                reading.machine_id,
                 reading.rms, reading.dominant_freq, reading.battery_voltage,
                 reading.rssi
             )
@@ -314,52 +341,54 @@ class Database:
                 encoded_voltage = round((reading.battery_voltage - 1.0) * 100)
                 cursor.execute('''
                     INSERT INTO readings (
-                        timestamp, aggregator_name, machine_id, rms, dominant_freq,
+                        timestamp, aggregator_name, machine_type, machine_id, rms, dominant_freq,
                         battery_voltage, rssi, battery_percent
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', values + (encoded_voltage,))
             else:
                 cursor.execute('''
                     INSERT INTO readings (
-                        timestamp, aggregator_name, machine_id, rms, dominant_freq,
+                        timestamp, aggregator_name, machine_type, machine_id, rms, dominant_freq,
                         battery_voltage, rssi
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ''', values)
             
-    def store_state_change(self, aggregator_name: str, machine_id: int,
+    def store_state_change(self, aggregator_name: str, machine_type: int, machine_id: int,
                           old_state: MachineState, new_state: MachineState):
         """Store a state change event"""
         with self._cursor() as cursor:
             cursor.execute('''
-                INSERT INTO state_changes (timestamp, aggregator_name, machine_id, old_state, new_state)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO state_changes (timestamp, aggregator_name, machine_type, machine_id, old_state, new_state)
+                VALUES (?, ?, ?, ?, ?, ?)
             ''', (
                 time.time(),
                 aggregator_name,
+                machine_type,
                 machine_id,
                 old_state.value,
                 new_state.value
             ))
             
-    def start_cycle(self, aggregator_name: str, machine_id: int) -> int:
+    def start_cycle(self, aggregator_name: str, machine_type: int, machine_id: int) -> int:
         """Record start of a new cycle, return cycle ID"""
         with self._cursor() as cursor:
             cursor.execute('''
-                INSERT INTO cycles (aggregator_name, machine_id, start_time)
-                VALUES (?, ?, ?)
-            ''', (aggregator_name, machine_id, time.time()))
+                INSERT INTO cycles (aggregator_name, machine_type, machine_id, start_time)
+                VALUES (?, ?, ?, ?)
+            ''', (aggregator_name, machine_type, machine_id, time.time()))
             return cursor.lastrowid
             
-    def end_cycle(self, aggregator_name: str, machine_id: int):
+    def end_cycle(self, aggregator_name: str, machine_type: int, machine_id: int):
         """Record end of current cycle"""
         now = time.time()
         with self._cursor() as cursor:
             # Find the most recent unfinished cycle
             cursor.execute('''
                 SELECT id, start_time FROM cycles 
-                WHERE aggregator_name = ? AND machine_id = ? AND end_time IS NULL
+                WHERE aggregator_name = ? AND machine_type = ? AND machine_id = ?
+                    AND end_time IS NULL
                 ORDER BY start_time DESC LIMIT 1
-            ''', (aggregator_name, machine_id))
+            ''', (aggregator_name, machine_type, machine_id))
             
             row = cursor.fetchone()
             if row:
@@ -377,7 +406,7 @@ class Database:
                     f"{duration:.1f} minutes"
                 )
                 
-    def get_recent_readings(self, aggregator_name: str, machine_id: int,
+    def get_recent_readings(self, aggregator_name: str, machine_type: int, machine_id: int,
                            hours: float = 24) -> List[Dict]:
         """Get recent readings for a machine"""
         cutoff = time.time() - (hours * 3600)
@@ -386,24 +415,26 @@ class Database:
             cursor.execute('''
                 SELECT timestamp, rms, dominant_freq, battery_voltage
                 FROM readings
-                WHERE aggregator_name = ? AND machine_id = ? AND timestamp > ?
+                WHERE aggregator_name = ? AND machine_type = ? AND machine_id = ?
+                    AND timestamp > ?
                     AND battery_voltage IS NOT NULL
                 ORDER BY timestamp DESC
-            ''', (aggregator_name, machine_id, cutoff))
+            ''', (aggregator_name, machine_type, machine_id, cutoff))
             
             return [dict(row) for row in cursor.fetchall()]
             
-    def get_cycle_history(self, aggregator_name: str, machine_id: int,
+    def get_cycle_history(self, aggregator_name: str, machine_type: int, machine_id: int,
                          limit: int = 50) -> List[Dict]:
         """Get cycle history for a machine"""
         with self._cursor() as cursor:
             cursor.execute('''
                 SELECT start_time, end_time, duration_minutes
                 FROM cycles
-                WHERE aggregator_name = ? AND machine_id = ? AND end_time IS NOT NULL
+                WHERE aggregator_name = ? AND machine_type = ? AND machine_id = ?
+                    AND end_time IS NOT NULL
                 ORDER BY start_time DESC
                 LIMIT ?
-            ''', (aggregator_name, machine_id, limit))
+            ''', (aggregator_name, machine_type, machine_id, limit))
             
             return [dict(row) for row in cursor.fetchall()]
             

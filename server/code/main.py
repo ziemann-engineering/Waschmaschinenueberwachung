@@ -76,6 +76,19 @@ def is_receiver_connected() -> bool:
     return (time.time() - last_receiver_contact) < 180
 
 
+def parse_machine_key(machine_key: str):
+    if len(machine_key) < 2 or machine_key[0].upper() not in ('W', 'T'):
+        abort(404)
+    try:
+        machine_id = int(machine_key[1:])
+    except ValueError:
+        abort(404)
+    if machine_id < 1:
+        abort(404)
+    machine_type = 1 if machine_key[0].upper() == 'W' else 2
+    return machine_type, machine_id
+
+
 @app.route('/')
 def index():
     """Main page - all aggregators"""
@@ -130,10 +143,11 @@ def api_assign_sensor(sensor_id: str):
     return jsonify({'success': True})
 
 
-@app.route('/aggregator/<aggregator_name>/machine/<int:machine_id>')
-def machine_history_page(aggregator_name: str, machine_id: int):
+@app.route('/<aggregator_name>/<machine_key>')
+def machine_history_page(aggregator_name: str, machine_key: str):
     """Machine sensor history page."""
-    machine = state_machine.get_machine_status(aggregator_name, machine_id)
+    machine_type, machine_id = parse_machine_key(machine_key)
+    machine = state_machine.get_machine_status(aggregator_name, machine_type, machine_id)
     if not machine:
         abort(404)
 
@@ -144,7 +158,7 @@ def machine_history_page(aggregator_name: str, machine_id: int):
     )
 
 
-@app.route('/aggregator/<aggregator_name>')
+@app.route('/<aggregator_name>')
 def aggregator_page(aggregator_name: str):
     """Single live aggregator page."""
     status = state_machine.get_aggregator_status(
@@ -180,21 +194,27 @@ def api_aggregator(aggregator_name: str):
     return jsonify(status)
 
 
-@app.route('/api/machine/<aggregator_name>/<int:machine_id>')
-def api_machine(aggregator_name: str, machine_id: int):
+@app.route('/api/machine/<aggregator_name>/<machine_key>')
+def api_machine(aggregator_name: str, machine_key: str):
     """API endpoint - single machine status"""
-    status = state_machine.get_machine_status(aggregator_name, machine_id)
+    machine_type, machine_id = parse_machine_key(machine_key)
+    status = state_machine.get_machine_status(aggregator_name, machine_type, machine_id)
     if not status:
         abort(404)
     return jsonify(status)
 
 
-@app.route('/api/history/<aggregator_name>/<int:machine_id>')
-def api_history(aggregator_name: str, machine_id: int):
+@app.route('/api/history/<aggregator_name>/<machine_key>')
+def api_history(aggregator_name: str, machine_key: str):
     """API endpoint - machine reading history"""
+    machine_type, machine_id = parse_machine_key(machine_key)
     hours = request.args.get('hours', 24, type=float)
-    readings = database.get_recent_readings(aggregator_name, machine_id, hours)
-    cycles = database.get_cycle_history(aggregator_name, machine_id, 20)
+    readings = database.get_recent_readings(
+        aggregator_name, machine_type, machine_id, hours
+    )
+    cycles = database.get_cycle_history(
+        aggregator_name, machine_type, machine_id, 20
+    )
     return jsonify({
         'readings': readings,
         'cycles': cycles
@@ -320,6 +340,7 @@ def on_reading_received(reading: MachineReading):
         # Store state change
         database.store_state_change(
             machine.aggregator_name,
+            machine.machine_type,
             machine.machine_id,
             old_state,
             new_state
@@ -329,9 +350,13 @@ def on_reading_received(reading: MachineReading):
         if new_state == MachineState.RUNNING and old_state in (
             MachineState.FREE, MachineState.DONE, MachineState.UNKNOWN
         ):
-            database.start_cycle(machine.aggregator_name, machine.machine_id)
+            database.start_cycle(
+                machine.aggregator_name, machine.machine_type, machine.machine_id
+            )
         elif new_state == MachineState.FREE and old_state == MachineState.DONE:
-            database.end_cycle(machine.aggregator_name, machine.machine_id)
+            database.end_cycle(
+                machine.aggregator_name, machine.machine_type, machine.machine_id
+            )
             
         # Send notifications
         notification_manager.on_state_change(machine, old_state, new_state)
@@ -346,6 +371,7 @@ def offline_check_loop():
         for machine, old_state, new_state in state_changes:
             database.store_state_change(
                 machine.aggregator_name,
+                machine.machine_type,
                 machine.machine_id,
                 old_state,
                 new_state

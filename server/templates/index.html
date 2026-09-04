@@ -58,7 +58,7 @@
             <div class="machine-grid">
                 {% for machine in agg.washers %}
                 <div class="machine-card state-{{ machine.state }}">
-                    <a class="machine-icon-link" href="{{ url_for('machine_history_page', aggregator_name=agg.name, machine_id=machine.machine_id) }}" aria-label="Messverlauf für {{ machine.name }}" title="Messverlauf für {{ machine.name }}">
+                    <a class="machine-icon-link" href="{{ url_for('machine_history_page', aggregator_name=agg.name, machine_key=machine.machine_key) }}" aria-label="Messverlauf für {{ machine.name }}" title="Messverlauf für {{ machine.name }}">
                         <span class="machine-icon">{{ machine.state_icon }}</span>
                     </a>
                     <div class="machine-info">
@@ -82,7 +82,7 @@
             <div class="machine-grid">
                 {% for machine in agg.dryers %}
                 <div class="machine-card state-{{ machine.state }}">
-                    <a class="machine-icon-link" href="{{ url_for('machine_history_page', aggregator_name=agg.name, machine_id=machine.machine_id) }}" aria-label="Messverlauf für {{ machine.name }}" title="Messverlauf für {{ machine.name }}">
+                    <a class="machine-icon-link" href="{{ url_for('machine_history_page', aggregator_name=agg.name, machine_key=machine.machine_key) }}" aria-label="Messverlauf für {{ machine.name }}" title="Messverlauf für {{ machine.name }}">
                         <span class="machine-icon">{{ machine.state_icon }}</span>
                     </a>
                     <div class="machine-info">

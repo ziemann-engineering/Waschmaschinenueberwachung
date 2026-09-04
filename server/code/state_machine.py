@@ -80,6 +80,7 @@ class MachineStatus:
         return {
             "aggregator_name": self.aggregator_name,
             "machine_id": self.machine_id,
+            "machine_key": f"{'W' if self.machine_type == 1 else 'T'}{self.machine_id}",
             "name": self.name,
             "machine_type": self.machine_type,
             "type_label": "Waschmaschine" if self.machine_type == 1 else "Tumbler",
@@ -152,7 +153,7 @@ class StateMachine:
     def __init__(self, thresholds: Thresholds, config: dict):
         self.thresholds = thresholds
         self.config = config
-        self.machines: Dict[Tuple[str, int], MachineStatus] = {}
+        self.machines: Dict[Tuple[str, int, int], MachineStatus] = {}
         self.lock = Lock()
         
     def load_assignments(self, assignments: list[dict]):
@@ -162,7 +163,7 @@ class StateMachine:
                 aggregator_name = assignment['assigned_aggregator_name']
                 machine_id = assignment['machine_id']
                 machine_type = assignment['machine_type']
-                key = (aggregator_name, machine_id)
+                key = (aggregator_name, machine_type, machine_id)
                 machine_name = (
                     f"Waschmaschine {machine_id}"
                     if machine_type == 1 else f"Tumbler {machine_id}"
@@ -180,7 +181,7 @@ class StateMachine:
         
     def update(self, reading: MachineReading):
         """Update machine state based on new reading"""
-        key = (reading.aggregator_name, reading.machine_id)
+        key = (reading.aggregator_name, reading.machine_type, reading.machine_id)
         now = time.time()
         
         with self.lock:
@@ -281,7 +282,7 @@ class StateMachine:
             for aggregator_name in sorted(live_aggregator_names):
                 result[aggregator_name] = self._new_aggregator_status(aggregator_name)
 
-            for (aggregator_name, _), machine in sorted(self.machines.items()):
+            for (aggregator_name, _, _), machine in sorted(self.machines.items()):
                 agg_key = aggregator_name
                 if agg_key not in result:
                     result[agg_key] = self._new_aggregator_status(aggregator_name)
@@ -348,9 +349,10 @@ class StateMachine:
         all_status = self.get_all_status(live_aggregators)
         return all_status.get(aggregator_name)
         
-    def get_machine_status(self, aggregator_name: str, machine_id: int) -> Optional[dict]:
+    def get_machine_status(self, aggregator_name: str, machine_type: int,
+                           machine_id: int) -> Optional[dict]:
         """Get status for a specific machine"""
-        key = (aggregator_name, machine_id)
+        key = (aggregator_name, machine_type, machine_id)
         
         with self.lock:
             if key in self.machines:

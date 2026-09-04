@@ -69,7 +69,7 @@ class NotificationManager:
         if not self.enabled:
             return
             
-        key = (machine.aggregator_name, machine.machine_id)
+        key = (machine.aggregator_name, machine.machine_type, machine.machine_id)
         
         # Notify when machine becomes DONE
         if new_state == MachineState.DONE:
