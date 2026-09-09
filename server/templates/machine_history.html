@@ -45,6 +45,10 @@
 				<span>Batterie</span>
 				<strong id="latest-battery">–</strong>
 			</div>
+			<div>
+				<span>RSSI</span>
+				<strong id="latest-rssi">–</strong>
+			</div>
 		</section>
 
 		<section class="plot-section">
@@ -63,6 +67,14 @@
 			<svg id="battery-plot" class="history-plot" role="img" aria-label="Batteriespannung über Zeit"></svg>
 		</section>
 
+		<section class="plot-section">
+			<div class="plot-heading">
+				<h2>Signalstärke (RSSI)</h2>
+				<span>dBm</span>
+			</div>
+			<svg id="rssi-plot" class="history-plot" role="img" aria-label="Signalstärke über Zeit"></svg>
+		</section>
+
 		<section class="log-section">
 			<div class="plot-heading">
 				<h2>Empfangene Sensor-Updates</h2>
@@ -76,6 +88,7 @@
 							<th>RMS</th>
 							<th>Frequenz</th>
 							<th>Batterie</th>
+							<th>RSSI</th>
 						</tr>
 					</thead>
 					<tbody id="history-log"></tbody>

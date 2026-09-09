@@ -485,7 +485,7 @@ main {
 
 .history-summary {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 1px;
     overflow: hidden;
     margin-bottom: 1rem;
@@ -585,6 +585,15 @@ main {
 .plot-point-battery_voltage {
     stroke: #16836f;
     fill: #16836f;
+}
+
+.plot-line-rssi {
+    stroke: #3157a4;
+}
+
+.plot-point-rssi {
+    stroke: #3157a4;
+    fill: #3157a4;
 }
 
 .history-table-wrap {

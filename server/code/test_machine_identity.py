@@ -23,18 +23,22 @@ class MachineIdentityTest(unittest.TestCase):
         database.assign_sensor('W', 'D2', 1, 2, 1)
         database.assign_sensor('T', 'D2', 2, 2, 1)
 
-        for sensor_id, machine_type, rms in (('W', 1, 1.1), ('T', 2, 2.2)):
+        for sensor_id, machine_type, rms, rssi in (
+            ('W', 1, 1.1, -51), ('T', 2, 2.2, -62)
+        ):
             database.store_reading(MachineReading(
                 aggregator_name='D2', sensor_id=sensor_id,
                 assignment_active=False, rms=rms, dominant_freq=0,
-                battery_voltage=3.0, timestamp=10,
+                battery_voltage=3.0, rssi=rssi, timestamp=10,
                 machine_type=machine_type, machine_id=2
             ))
 
         washer_history = database.get_recent_readings('D2', 1, 2, 1e9)
         dryer_history = database.get_recent_readings('D2', 2, 2, 1e9)
         self.assertEqual(washer_history[0]['rms'], 1.1)
+        self.assertEqual(washer_history[0]['rssi'], -51)
         self.assertEqual(dryer_history[0]['rms'], 2.2)
+        self.assertEqual(dryer_history[0]['rssi'], -62)
 
         state = StateMachine(Thresholds(), {})
         state.load_assignments(database.get_assignments())

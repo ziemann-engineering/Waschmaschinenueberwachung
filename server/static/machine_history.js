@@ -21,17 +21,20 @@
 		});
 	}
 
-	function renderPlot(svg, readings, field, fixedRange = null) {
+	function renderPlot(svg, readings, field, fixedRange = null, labelDigits = 2) {
 		const width = Math.max(Math.round(svg.getBoundingClientRect().width), 360);
 		const height = width < 600 ? 220 : 280;
 		const margin = { top: 18, right: 22, bottom: 42, left: 58 };
 		const plotWidth = width - margin.left - margin.right;
 		const plotHeight = height - margin.top - margin.bottom;
+		const validReadings = readings.filter(reading => (
+			reading[field] !== null && Number.isFinite(Number(reading[field]))
+		));
 		svg.replaceChildren();
 		svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
 		svg.setAttribute('height', height);
 
-		if (!readings.length) {
+		if (!validReadings.length) {
 			svg.appendChild(svgElement('text', {
 				x: width / 2,
 				y: height / 2,
@@ -41,10 +44,10 @@
 			return;
 		}
 
-		const firstTime = readings[0].timestamp;
-		const lastTime = readings[readings.length - 1].timestamp;
+		const firstTime = validReadings[0].timestamp;
+		const lastTime = validReadings[validReadings.length - 1].timestamp;
 		const timeSpan = Math.max(lastTime - firstTime, 1);
-		const values = readings.map(reading => Number(reading[field]));
+		const values = validReadings.map(reading => Number(reading[field]));
 		const highestValue = values.reduce((highest, value) => Math.max(highest, value), 0);
 		const minimum = fixedRange?.minimum ?? 0;
 		const maximum = fixedRange?.maximum ?? Math.max(highestValue * 1.1, 0.1);
@@ -65,17 +68,20 @@
 				y: y + 4,
 				class: 'plot-label',
 				'text-anchor': 'end'
-			}, value.toFixed(2)));
+			}, value.toFixed(labelDigits)));
 		}
 
-		const points = readings.map(reading => {
+		const points = validReadings.map(reading => {
 			const x = margin.left + ((reading.timestamp - firstTime) / timeSpan) * plotWidth;
 			const ratio = (Number(reading[field]) - minimum) / valueSpan;
 			const y = margin.top + (1 - ratio) * plotHeight;
 			return `${x.toFixed(1)},${y.toFixed(1)}`;
 		}).join(' ');
 
-		const stroke = field === 'battery_voltage' ? '#16836f' : '#d94841';
+		const stroke = {
+			battery_voltage: '#16836f',
+			rssi: '#3157a4'
+		}[field] ?? '#d94841';
 		svg.appendChild(svgElement('polyline', {
 			points,
 			class: `plot-line plot-line-${field}`,
@@ -86,8 +92,8 @@
 			'stroke-linejoin': 'round'
 		}));
 
-		if (readings.length <= 120) {
-			readings.forEach(reading => {
+		if (validReadings.length <= 120) {
+			validReadings.forEach(reading => {
 				const x = margin.left + ((reading.timestamp - firstTime) / timeSpan) * plotWidth;
 				const ratio = (Number(reading[field]) - minimum) / valueSpan;
 				const y = margin.top + (1 - ratio) * plotHeight;
@@ -128,7 +134,8 @@
 				formatTime(reading.timestamp),
 				`${Number(reading.rms).toFixed(3)} m/s²`,
 				`${Number(reading.dominant_freq).toFixed(1)} Hz`,
-				`${Number(reading.battery_voltage).toFixed(2)} V`
+				`${Number(reading.battery_voltage).toFixed(2)} V`,
+				reading.rssi === null ? '–' : `${Number(reading.rssi)} dBm`
 			];
 			values.forEach(value => {
 				const cell = document.createElement('td');
@@ -154,12 +161,19 @@
 			document.getElementById('latest-rms').textContent = latest ? `${Number(latest.rms).toFixed(3)} m/s²` : '–';
 			document.getElementById('latest-frequency').textContent = latest ? `${Number(latest.dominant_freq).toFixed(1)} Hz` : '–';
 			document.getElementById('latest-battery').textContent = latest ? `${Number(latest.battery_voltage).toFixed(2)} V` : '–';
+			document.getElementById('latest-rssi').textContent = latest?.rssi !== null && latest?.rssi !== undefined
+				? `${Number(latest.rssi)} dBm`
+				: '–';
 
 			renderPlot(document.getElementById('rms-plot'), chronological, 'rms');
 			renderPlot(document.getElementById('battery-plot'), chronological, 'battery_voltage', {
 				minimum: 1.0,
 				maximum: 3.55
 			});
+			renderPlot(document.getElementById('rssi-plot'), chronological, 'rssi', {
+				minimum: -120,
+				maximum: -20
+			}, 0);
 			renderLog(newestFirst);
 			error.hidden = true;
 		} catch (exception) {

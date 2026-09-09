@@ -413,7 +413,7 @@ class Database:
         
         with self._cursor() as cursor:
             cursor.execute('''
-                SELECT timestamp, rms, dominant_freq, battery_voltage
+                SELECT timestamp, rms, dominant_freq, battery_voltage, rssi
                 FROM readings
                 WHERE aggregator_name = ? AND machine_type = ? AND machine_id = ?
                     AND timestamp > ?
